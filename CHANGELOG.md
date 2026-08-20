@@ -4,6 +4,8 @@ All notable changes to Farfield will be documented here. The project follows sem
 
 ## Unreleased
 
+## 0.1.0-alpha.1 - 2026-08-19
+
 ### Added
 
 - Go-first repository and `farfield` CLI.
