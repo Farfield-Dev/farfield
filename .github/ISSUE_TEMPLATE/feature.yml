@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a developer problem Farfield should solve
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Developer problem
+      description: Describe the workflow or failure mode, not only the desired API.
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: How is this handled today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+    validations:
+      required: true

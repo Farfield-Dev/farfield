@@ -1,0 +1,6 @@
+.git
+.github
+.farfield
+bin
+dist
+coverage.out

@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: npx --yes @redocly/cli@2.46.2 lint openapi.yaml
+
+  s3-conformance:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: farfield
+      AWS_SECRET_ACCESS_KEY: farfield-secret
+      AWS_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      FARFIELD_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Start MinIO
+        run: |
+          docker run --detach --rm --name farfield-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" \
+            --env MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
+            quay.io/minio/minio:latest server /data
+          curl --fail --retry 20 --retry-delay 1 http://127.0.0.1:9000/minio/health/ready
+      - run: go test ./storage/s3store -run TestS3CompatibleIntegration -count=1

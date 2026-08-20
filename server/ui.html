@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Farfield</title>
+  <style>
+    :root { color-scheme: dark; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: #0b0d10; color: #e8eaed; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { padding: 28px 32px 22px; border-bottom: 1px solid #262a31; }
+    h1 { margin: 0; font: 600 24px/1.2 system-ui, sans-serif; letter-spacing: -.03em; }
+    header p { margin: 7px 0 0; color: #9299a6; }
+    main { display: grid; grid-template-columns: minmax(270px, 34%) 1fr; min-height: calc(100vh - 101px); }
+    aside { border-right: 1px solid #262a31; padding: 18px; }
+    section { padding: 24px; overflow: auto; }
+    button { width: 100%; text-align: left; background: transparent; color: inherit; border: 1px solid #292e37; border-radius: 8px; padding: 12px; margin-bottom: 9px; cursor: pointer; }
+    button:hover, button.active { border-color: #77d5a8; background: #111a17; }
+    .meta { color: #8d95a3; font-size: 12px; }
+    .event { border-left: 2px solid #333943; padding: 2px 0 18px 18px; margin-left: 5px; }
+    .event:last-child { border-color: transparent; }
+    .kind { color: #77d5a8; font-weight: 700; }
+    pre { white-space: pre-wrap; word-break: break-word; color: #cbd1da; background: #111419; border-radius: 7px; padding: 12px; }
+    .empty { color: #8d95a3; }
+    @media (max-width: 720px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid #262a31; } }
+  </style>
+</head>
+<body>
+  <header><h1>Farfield</h1><p>Durable agent history from object storage you control.</p></header>
+  <main>
+    <aside><div id="conversations" class="empty">Loading conversations…</div></aside>
+    <section><div id="timeline" class="empty">Select a conversation to inspect its timeline.</div></section>
+  </main>
+  <script>
+    const conversations = document.querySelector('#conversations');
+    const timeline = document.querySelector('#timeline');
+    const escapeHTML = value => String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    async function loadConversations() {
+      const response = await fetch('/v1/history/conversations');
+      const values = await response.json();
+      if (!values.length) { conversations.textContent = 'No conversations yet. Append a record to begin.'; return; }
+      conversations.innerHTML = values.map(value => `<button data-id="${escapeHTML(value.id)}"><strong>${escapeHTML(value.id)}</strong><div class="meta">${value.record_count} records · ${escapeHTML(value.kinds.join(', '))}</div></button>`).join('');
+      conversations.querySelectorAll('button').forEach(button => button.addEventListener('click', () => loadTimeline(button.dataset.id, button)));
+      loadTimeline(values[0].id, conversations.querySelector('button'));
+    }
+    async function loadTimeline(id, button) {
+      conversations.querySelectorAll('button').forEach(item => item.classList.remove('active'));
+      button?.classList.add('active');
+      timeline.textContent = 'Loading timeline…';
+      const response = await fetch(`/v1/history/conversations/${encodeURIComponent(id)}/timeline`);
+      const values = await response.json();
+      if (!response.ok) { timeline.textContent = values.error?.message || 'Could not load timeline.'; return; }
+      timeline.innerHTML = `<h2>${escapeHTML(id)}</h2>` + values.map(value => `<article class="event"><div><span class="kind">${escapeHTML(value.record.kind)}</span> <span class="meta">${escapeHTML(value.record.occurred_at)}</span></div><pre>${escapeHTML(JSON.stringify(value.content, null, 2))}</pre></article>`).join('');
+    }
+    loadConversations().catch(error => conversations.textContent = error.message);
+  </script>
+</body>
+</html>

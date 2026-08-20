@@ -1,0 +1,375 @@
+openapi: 3.1.0
+info:
+  title: Farfield API
+  version: 0.1.0-alpha.1
+  description: Immutable agent History plus a durable, object-storage-native run journal. The pre-release server has no built-in authentication.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://127.0.0.1:8787
+security: []
+paths:
+  /v1/health:
+    get:
+      summary: Check server health
+      operationId: health
+      responses:
+        "200":
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service]
+                properties:
+                  ok: {type: boolean}
+                  service: {const: farfield}
+  /v1/history/records:
+    post:
+      summary: Append an immutable History record
+      operationId: appendHistoryRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AppendRecord"}
+      responses:
+        "201":
+          description: Immutable record committed or idempotently recovered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Record"}
+        "409": {$ref: "#/components/responses/Error"}
+    get:
+      summary: Query History records
+      operationId: queryHistoryRecords
+      parameters:
+        - {in: query, name: conversation_id, schema: {type: string}}
+        - {in: query, name: trace_id, schema: {type: string}}
+        - {in: query, name: kind, schema: {type: string}}
+        - {in: query, name: agent, schema: {type: string}}
+        - {in: query, name: tool, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
+      responses:
+        "200":
+          description: Matching records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Record"}
+  /v1/history/records/{record_id}:
+    get:
+      summary: Read a record and its content
+      operationId: getHistoryRecord
+      parameters:
+        - {in: path, name: record_id, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Record with hydrated content
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Entry"}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/history/segments:
+    post:
+      summary: Atomically append a batch of records as one immutable segment
+      operationId: appendHistorySegment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/AppendSegment"}
+      responses:
+        "201":
+          description: Segment durably committed or idempotently recovered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Segment"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/history/conversations:
+    get:
+      summary: List conversation summaries
+      operationId: listConversations
+      parameters:
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
+      responses:
+        "200":
+          description: Conversation summaries ordered by most recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Conversation"}
+  /v1/history/conversations/{conversation_id}/timeline:
+    get:
+      summary: Read a hydrated conversation timeline
+      operationId: getConversationTimeline
+      parameters:
+        - {in: path, name: conversation_id, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Hydrated records in event-time order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/Entry"}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/runtime/runs:
+    post:
+      summary: Create a durable run journal
+      operationId: createRuntimeRun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CreateRun"}
+      responses:
+        "201":
+          description: Creation event committed or idempotently recovered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeEvent"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/runtime/runs/{run_id}:
+    get:
+      summary: Reconstruct the current run state from its journal
+      operationId: getRuntimeRun
+      parameters:
+        - {in: path, name: run_id, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Verified reduced run state
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Run"}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/runtime/runs/{run_id}/events:
+    get:
+      summary: Read and verify a complete run event chain
+      operationId: getRuntimeRunEvents
+      parameters:
+        - {in: path, name: run_id, required: true, schema: {type: string}}
+      responses:
+        "200":
+          description: Events in contiguous sequence order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {$ref: "#/components/schemas/RuntimeEvent"}
+        "404": {$ref: "#/components/responses/Error"}
+  /v1/runtime/runs/{run_id}/transitions:
+    post:
+      summary: Commit the next valid run transition
+      operationId: transitionRuntimeRun
+      parameters:
+        - {in: path, name: run_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TransitionRun"}
+      responses:
+        "201":
+          description: Transition committed or idempotently recovered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeEvent"}
+        "409": {$ref: "#/components/responses/Error"}
+  /v1/runtime/runs/{run_id}/checkpoints:
+    post:
+      summary: Commit a checkpoint without changing run status
+      operationId: checkpointRuntimeRun
+      parameters:
+        - {in: path, name: run_id, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/CheckpointRun"}
+      responses:
+        "201":
+          description: Checkpoint committed or idempotently recovered
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RuntimeEvent"}
+        "409": {$ref: "#/components/responses/Error"}
+components:
+  responses:
+    Error:
+      description: Stable Farfield error
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+  schemas:
+    AppendRecord:
+      type: object
+      required: [conversation_id, kind, content]
+      properties:
+        id: {type: string}
+        conversation_id: {type: string}
+        kind: {type: string}
+        content: {}
+        occurred_at: {type: string, format: date-time}
+        sequence: {type: integer, minimum: 0}
+        trace_id: {type: string}
+        span_id: {type: string}
+        parent_id: {type: string}
+        agent: {type: string}
+        tool: {type: string}
+        status: {type: string}
+        tags: {type: object, additionalProperties: {type: string}}
+      additionalProperties: false
+    AppendSegment:
+      type: object
+      required: [records]
+      properties:
+        id: {type: string, description: Stable segment ID for idempotent retries}
+        records:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items: {$ref: "#/components/schemas/AppendRecord"}
+      additionalProperties: false
+    Segment:
+      type: object
+      required: [schema_version, id, conversation_id, shard, created_at, entries, segment_sha256]
+      properties:
+        schema_version: {const: farfield.history.segment.v1}
+        id: {type: string}
+        conversation_id: {type: string}
+        shard: {type: string, pattern: "^[0-9a-f]{2}$"}
+        created_at: {type: string, format: date-time}
+        entries:
+          type: array
+          items: {$ref: "#/components/schemas/SegmentEntry"}
+        segment_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+    Record:
+      type: object
+      required: [schema_version, id, conversation_id, kind, occurred_at, recorded_at, tags, content, record_sha256]
+      properties:
+        schema_version:
+          enum: [farfield.history.record.v1, farfield.history.record.v2]
+        id: {type: string}
+        conversation_id: {type: string}
+        kind: {type: string}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        sequence: {type: [integer, "null"], minimum: 0}
+        trace_id: {type: [string, "null"]}
+        span_id: {type: [string, "null"]}
+        parent_id: {type: [string, "null"]}
+        agent: {type: [string, "null"]}
+        tool: {type: [string, "null"]}
+        status: {type: [string, "null"]}
+        tags: {type: object, additionalProperties: {type: string}}
+        content: {$ref: "#/components/schemas/ContentRef"}
+        record_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+    ContentRef:
+      type: object
+      required: [sha256, size, media_type, key]
+      properties:
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        size: {type: integer, minimum: 0}
+        media_type: {type: string}
+        key: {type: string}
+        storage: {type: string, enum: [segment, blob]}
+        entry_index: {type: integer, minimum: 0}
+    SegmentEntry:
+      type: object
+      required: [record]
+      properties:
+        record: {$ref: "#/components/schemas/Record"}
+        content: {}
+    Entry:
+      type: object
+      required: [record, content]
+      properties:
+        record: {$ref: "#/components/schemas/Record"}
+        content: {}
+    Conversation:
+      type: object
+      required: [id, record_count, first_seen_at, last_seen_at, agents, kinds]
+      properties:
+        id: {type: string}
+        record_count: {type: integer, minimum: 1}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+        agents: {type: array, items: {type: string}}
+        kinds: {type: array, items: {type: string}}
+    RuntimeStatus:
+      type: string
+      enum: [queued, running, waiting, sleeping, completed, failed, cancelled, ambiguous]
+    CreateRun:
+      type: object
+      required: [operation_id]
+      properties:
+        id: {type: string, description: Stable run ID; generated when omitted}
+        operation_id: {type: string, description: Stable idempotency key}
+        checkpoint: {}
+      additionalProperties: false
+    TransitionRun:
+      type: object
+      required: [operation_id, to]
+      properties:
+        operation_id: {type: string, description: Stable idempotency key}
+        to: {$ref: "#/components/schemas/RuntimeStatus"}
+        checkpoint: {}
+      additionalProperties: false
+    CheckpointRun:
+      type: object
+      required: [operation_id, checkpoint]
+      properties:
+        operation_id: {type: string, description: Stable idempotency key}
+        checkpoint: {}
+      additionalProperties: false
+    RuntimeEvent:
+      type: object
+      required: [schema_version, id, run_id, operation_id, sequence, attempt, kind, from, to, occurred_at, recorded_at, event_sha256]
+      properties:
+        schema_version: {const: farfield.runtime.event.v1}
+        id: {type: string}
+        run_id: {type: string}
+        operation_id: {type: string}
+        sequence: {type: integer, minimum: 0}
+        attempt: {type: integer, minimum: 0}
+        kind: {type: string, enum: [run.created, run.transition, run.checkpoint]}
+        from:
+          oneOf:
+            - {$ref: "#/components/schemas/RuntimeStatus"}
+            - {type: "null"}
+        to: {$ref: "#/components/schemas/RuntimeStatus"}
+        occurred_at: {type: string, format: date-time}
+        recorded_at: {type: string, format: date-time}
+        checkpoint: {}
+        previous_event_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        event_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+    Run:
+      type: object
+      required: [id, status, sequence, attempt, updated_at, last_event_id, last_event_sha256]
+      properties:
+        id: {type: string}
+        status: {$ref: "#/components/schemas/RuntimeStatus"}
+        sequence: {type: integer, minimum: 0}
+        attempt: {type: integer, minimum: 0}
+        updated_at: {type: string, format: date-time}
+        last_event_id: {type: string}
+        last_event_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        checkpoint: {}
+        checkpoint_at: {type: string, format: date-time}
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, retryable]
+          properties:
+            code: {type: string}
+            message: {type: string}
+            retryable: {type: boolean}
