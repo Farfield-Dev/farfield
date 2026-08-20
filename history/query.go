@@ -86,10 +86,10 @@ type Conversation struct {
 }
 
 func (service *Service) Conversations(ctx context.Context, limit int) ([]Conversation, error) {
-	records, err := service.ListRecords(ctx)
-	if err != nil {
-		return nil, err
-	}
+	return service.projection.conversations(ctx, service, limit)
+}
+
+func aggregateConversations(records []Record, limit int) []Conversation {
 	type aggregate struct {
 		conversation Conversation
 		agents       map[string]struct{}
@@ -135,7 +135,7 @@ func (service *Service) Conversations(ctx context.Context, limit int) ([]Convers
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
 	}
-	return result, nil
+	return result
 }
 
 func matches(record Record, query Query) bool {

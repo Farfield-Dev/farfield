@@ -171,9 +171,23 @@ func (service *Service) AppendBatch(ctx context.Context, input AppendBatchInput)
 		if !sameBatch(existing, input) {
 			return Segment{}, failure("FH_IDEMPOTENCY_CONFLICT", fmt.Sprintf("segment id %q was reused for different records", segmentID), err)
 		}
+		if err := service.projectSource(ctx, key, existing.SegmentSHA256, segmentRecords(existing)); err != nil {
+			return Segment{}, err
+		}
 		return existing, nil
 	}
+	if err := service.projectSource(ctx, key, segment.SegmentSHA256, segmentRecords(segment)); err != nil {
+		return Segment{}, err
+	}
 	return segment, nil
+}
+
+func segmentRecords(segment Segment) []Record {
+	records := make([]Record, len(segment.Entries))
+	for index, entry := range segment.Entries {
+		records[index] = entry.Record
+	}
+	return records
 }
 
 func (segment Segment) Validate() error {

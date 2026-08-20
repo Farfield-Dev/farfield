@@ -27,6 +27,7 @@ type Service struct {
 	maxSegmentBytes       int
 	maxSegmentRecords     int
 	now                   func() time.Time
+	projection            *conversationProjection
 }
 
 type Option func(*Service)
@@ -66,6 +67,7 @@ func New(store storage.Store, options ...Option) (*Service, error) {
 	if store == nil || service.maxContentBytes < 1 || service.maxInlineContentBytes < 0 || service.maxInlineContentBytes > service.maxContentBytes || service.maxSegmentBytes < 1 || service.maxSegmentRecords < 1 || service.now == nil {
 		return nil, failure("FH_INVALID_CONFIGURATION", "store, clock, and positive content and segment limits are required", nil)
 	}
+	service.projection = newConversationProjection(store, service.now)
 	return service, nil
 }
 
@@ -153,7 +155,13 @@ func (service *Service) Append(ctx context.Context, input AppendInput) (Record, 
 		if !sameAppend(existing, record, input.OccurredAt != nil) {
 			return Record{}, failure("FH_IDEMPOTENCY_CONFLICT", fmt.Sprintf("record id %q was reused for different content", record.ID), err)
 		}
+		if err := service.projectSource(ctx, key, existing.RecordSHA256, []Record{existing}); err != nil {
+			return Record{}, err
+		}
 		return existing, nil
+	}
+	if err := service.projectSource(ctx, key, record.RecordSHA256, []Record{record}); err != nil {
+		return Record{}, err
 	}
 	return record, nil
 }

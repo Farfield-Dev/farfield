@@ -212,7 +212,10 @@ execution.
 
 This first release is useful for local evaluation, SDK development, and proving the storage protocol. It is not yet a production observability backend:
 
-- Queries currently scan authoritative records and relevant conversation shards; manifests and a rebuildable query projection are next.
+- Conversation lists use a rebuildable object-backed projection with immutable
+  deltas and checksummed snapshots. Filtered record queries and timelines still
+  scan authoritative records in the relevant shards; manifests and compacted
+  range-readable packs are next.
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
 - S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible
   providers are rejected. Native GCS writes use `ifGenerationMatch=0`.

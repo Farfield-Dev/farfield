@@ -17,6 +17,8 @@ those semantics to support the Runtime journal.
 blobs/v1/sha256/<first-two-hex>/<remaining-hex>
 records/v1/by-id/<first-two-id-hash>/<id-hash>.json
 segments/v1/shards/<conversation-hash-prefix>/<segment-hash>.json
+projections/v1/conversations/deltas/<source-hash-prefix>/<source-hash>.json
+projections/v1/conversations/snapshots/<generation>-<time>-<hash>.json
 runtime/v1/runs/<run-hash-prefix>/<run-hash>/events/<20-digit-sequence>.json
 ```
 
@@ -51,6 +53,34 @@ Segments contain one conversation and are distributed across 256 deterministic
 conversation shards. Conversation queries list only the relevant v2 shard;
 global queries and legacy v1 records still require broader scans. Sharded
 manifests and compacted range-readable packs remain future work.
+
+## Conversation projection
+
+The conversation-list endpoint does not scan every authoritative record on
+each request. After a record or segment commits, Farfield writes one immutable
+summary delta to the same object store. The delta key is derived from the
+authoritative source key, so the same append retry repairs a missing delta and
+cannot count a source twice.
+
+On its first read of an existing bucket, Farfield rebuilds the view from
+authoritative records and segments and commits a checksummed immutable
+snapshot. A cold process loads the newest valid snapshot, lists the delta
+prefix, and fetches only unseen deltas with bounded concurrency. The running
+process serves the materialized view from memory and checks for external
+writers at most once per second. This one-second interval bounds cross-process
+freshness; writes through the same process update its view immediately.
+
+The authoritative source commits before its delta. If the delta write fails,
+the append reports `FH_PROJECTION_WRITE_FAILED`; retrying with the same record
+or segment ID commits the deterministic missing delta. A rebuild also recovers
+the complete view. Snapshot or delta damage never changes History evidence,
+and a valid view can always be reconstructed without another database.
+
+Snapshots currently retain exact applied-delta keys and compact after 256 new
+source objects. That is intentionally simple and correct for the first release.
+Hierarchical delta packs and sharded snapshot manifests are the scale path for
+avoiding an unbounded delta-prefix listing without changing the authoritative
+record format.
 
 ## Runtime journal
 
