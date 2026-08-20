@@ -42,6 +42,18 @@ type projectionCountingStore struct {
 	lists map[string]int
 }
 
+type projectionReadFailureStore struct {
+	storage.Store
+	fail bool
+}
+
+func (store *projectionReadFailureStore) Get(ctx context.Context, key string) ([]byte, error) {
+	if store.fail && strings.HasPrefix(key, conversationDeltaPrefix+"/") {
+		return nil, fmt.Errorf("simulated corrupt projection delta")
+	}
+	return store.Store.Get(ctx, key)
+}
+
 func (store *projectionCountingStore) operationCounts() (gets, lists int) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -101,21 +113,21 @@ func TestProjectionFailureIsRepairableByExactRetry(t *testing.T) {
 	}
 }
 
-func TestLegacyHistoryBootstrapsSnapshotAndColdStartAvoidsSourceGets(t *testing.T) {
+func TestExplicitRebuildRecoversAuthoritativeHistoryAndColdStartAvoidsSourceGets(t *testing.T) {
 	t.Parallel()
 	local, err := storage.OpenLocal(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := New(&projectionFailureStore{Store: local, dropOnly: true})
+	withoutProjectionWrites, err := New(&projectionFailureStore{Store: local, dropOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.AppendBatch(context.Background(), AppendBatchInput{
-		SegmentID: "seg_legacy_projection",
+	if _, err := withoutProjectionWrites.AppendBatch(context.Background(), AppendBatchInput{
+		SegmentID: "seg_rebuild_projection",
 		Records: []AppendInput{
-			{RecordID: "rec_legacy_one", ConversationID: "conv_legacy", Kind: "message.user", Content: []byte(`{"text":"one"}`)},
-			{RecordID: "rec_legacy_two", ConversationID: "conv_legacy", Kind: "message.assistant", Content: []byte(`{"text":"two"}`)},
+			{RecordID: "rec_rebuild_one", ConversationID: "conv_rebuild", Kind: "message.user", Content: []byte(`{"text":"one"}`)},
+			{RecordID: "rec_rebuild_two", ConversationID: "conv_rebuild", Kind: "message.assistant", Content: []byte(`{"text":"two"}`)},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -125,11 +137,19 @@ func TestLegacyHistoryBootstrapsSnapshotAndColdStartAvoidsSourceGets(t *testing.
 		t.Fatal(err)
 	}
 	conversations, err := first.Conversations(context.Background(), 10)
+	if err != nil || len(conversations) != 0 {
+		t.Fatalf("ordinary read scanned authoritative history: %#v, %v", conversations, err)
+	}
+	rebuilt, err := first.RebuildConversationProjection(context.Background())
+	if err != nil || rebuilt.ConversationCount != 1 || rebuilt.SourceCount != 1 {
+		t.Fatalf("rebuild = %#v, %v", rebuilt, err)
+	}
+	conversations, err = first.Conversations(context.Background(), 10)
 	if err != nil || len(conversations) != 1 || conversations[0].RecordCount != 2 {
-		t.Fatalf("bootstrap conversations = %#v, %v", conversations, err)
+		t.Fatalf("rebuilt conversations = %#v, %v", conversations, err)
 	}
 	snapshots, err := local.List(context.Background(), conversationSnapshotPrefix)
-	if err != nil || len(snapshots) != 1 {
+	if err != nil || len(snapshots) != 2 {
 		t.Fatalf("snapshot keys = %#v, %v", snapshots, err)
 	}
 
@@ -157,6 +177,42 @@ func TestLegacyHistoryBootstrapsSnapshotAndColdStartAvoidsSourceGets(t *testing.
 	afterGets, afterLists := counting.operationCounts()
 	if afterGets != beforeGets || afterLists != beforeLists {
 		t.Fatalf("warm projection performed object operations: gets=%#v lists=%#v", counting.gets, counting.lists)
+	}
+}
+
+func TestProjectionReadFailureRequiresExplicitRebuild(t *testing.T) {
+	t.Parallel()
+	local, err := storage.OpenLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := New(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Append(context.Background(), AppendInput{
+		RecordID: "rec_projection_corrupt", ConversationID: "conv_projection_corrupt",
+		Kind: "message.user", Content: []byte(`{"text":"recover me"}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := &projectionReadFailureStore{Store: local, fail: true}
+	reader, err := New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reader.Conversations(context.Background(), 10)
+	var domainError *Error
+	if !errors.As(err, &domainError) || domainError.Code != "FH_PROJECTION_READ_FAILED" {
+		t.Fatalf("projection read error = %v", err)
+	}
+	rebuilt, err := reader.RebuildConversationProjection(context.Background())
+	if err != nil || rebuilt.ConversationCount != 1 || rebuilt.SourceCount != 1 {
+		t.Fatalf("rebuild = %#v, %v", rebuilt, err)
+	}
+	conversations, err := reader.Conversations(context.Background(), 10)
+	if err != nil || len(conversations) != 1 || conversations[0].ID != "conv_projection_corrupt" {
+		t.Fatalf("conversations after rebuild = %#v, %v", conversations, err)
 	}
 }
 

@@ -86,7 +86,7 @@ type Conversation struct {
 }
 
 func (service *Service) Conversations(ctx context.Context, limit int) ([]Conversation, error) {
-	return service.projection.conversations(ctx, service, limit)
+	return service.projection.conversations(ctx, limit)
 }
 
 func aggregateConversations(records []Record, limit int) []Conversation {

@@ -77,6 +77,13 @@ go run ./cmd/farfield history verify
 `verify` recomputes segment, record, and payload checksums and reports missing,
 corrupt, duplicate, and orphaned objects.
 
+Conversation reads use projection objects only. To deliberately reconstruct
+the conversation projection from authoritative History, run:
+
+```bash
+go run ./cmd/farfield history projections rebuild
+```
+
 ## Journal a durable run
 
 The first Runtime slice uses the same object store and does not need a database:

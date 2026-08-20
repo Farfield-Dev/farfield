@@ -29,6 +29,13 @@ func TestHistoryCLIWorkflow(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
+	code = Run([]string{"history", "projections", "rebuild", "--store", store}, &stdout, &stderr)
+	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte(`"projection": "conversations"`)) || !bytes.Contains(stdout.Bytes(), []byte(`"source_count": 1`)) {
+		t.Fatalf("projection rebuild exit = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
 	code = Run([]string{"history", "timeline", "--store", store, "--conversation", "conv_cli"}, &stdout, &stderr)
 	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte(`"text": "hello"`)) {
 		t.Fatalf("timeline exit = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())

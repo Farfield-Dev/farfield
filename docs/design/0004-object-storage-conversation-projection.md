@@ -11,8 +11,8 @@ service for the conversation-list experience.
 
 Each authoritative record or segment has exactly one deterministic projection
 delta. Readers reduce those deltas over the newest valid immutable snapshot and
-keep the result in process memory. Existing buckets are bootstrapped by scanning
-authoritative History once and publishing a snapshot.
+keep the result in process memory. Scanning authoritative History is an explicit
+recovery operation and never an implicit query behavior.
 
 ## Why
 
@@ -58,10 +58,15 @@ source may already be durable and append returns a repairable projection error.
 An exact retry observes the immutable source and creates the same deterministic
 delta. Different reuse of the source ID remains an idempotency conflict.
 
-The first conversation-list request against a bucket without a valid snapshot
-scans authoritative records and segments. It marks the deterministic delta key
-for every observed source, merges deltas from concurrent writers, and publishes
-a new snapshot. This also migrates stores created by earlier Farfield versions.
+A conversation-list request with no snapshots reduces all available deltas and
+publishes its first snapshot. If projection data is damaged, the read fails with
+an actionable error instead of unexpectedly running a potentially expensive
+History scan.
+
+`farfield history projections rebuild` is the deliberate recovery boundary. It
+scans authoritative records and segments, marks the deterministic delta key for
+every observed source, merges deltas from concurrent writers, and publishes a
+new snapshot.
 
 Within one server process, successful appends update the loaded view
 immediately. Deltas from other processes are discovered on a one-second refresh

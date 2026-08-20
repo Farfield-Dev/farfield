@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -66,6 +65,14 @@ type conversationSnapshot struct {
 	Conversations    []Conversation `json:"conversations"`
 	AppliedDeltaKeys []string       `json:"applied_delta_keys"`
 	SnapshotSHA256   string         `json:"snapshot_sha256,omitempty"`
+}
+
+// ProjectionRebuild summarizes an explicit reconstruction from authoritative
+// History objects.
+type ProjectionRebuild struct {
+	Projection        string `json:"projection"`
+	ConversationCount int    `json:"conversation_count"`
+	SourceCount       int    `json:"source_count"`
 }
 
 func newConversationProjection(store storage.Store, now func() time.Time) *conversationProjection {
@@ -153,19 +160,17 @@ func (service *Service) projectSource(ctx context.Context, sourceKey, sourceSHA 
 	return nil
 }
 
-func (projection *conversationProjection) conversations(ctx context.Context, service *Service, limit int) ([]Conversation, error) {
+func (projection *conversationProjection) conversations(ctx context.Context, limit int) ([]Conversation, error) {
 	projection.mu.Lock()
 	defer projection.mu.Unlock()
 
 	if !projection.loaded {
-		if err := projection.load(ctx, service); err != nil {
-			return nil, failure("FH_PROJECTION_READ_FAILED", "conversation projection could not be loaded or rebuilt", err)
+		if err := projection.load(ctx); err != nil {
+			return nil, failure("FH_PROJECTION_READ_FAILED", "conversation projection could not be loaded", err)
 		}
 	} else if projection.now().Sub(projection.lastRefresh) >= conversationRefreshInterval {
 		if err := projection.refresh(ctx); err != nil {
-			if rebuildErr := projection.rebuild(ctx, service); rebuildErr != nil {
-				return nil, failure("FH_PROJECTION_READ_FAILED", "conversation projection could not be refreshed or rebuilt", errors.Join(err, rebuildErr))
-			}
+			return nil, failure("FH_PROJECTION_READ_FAILED", "conversation projection could not be refreshed; run `farfield history projections rebuild`", err)
 		}
 	}
 	if projection.deltasSinceSnapshot >= conversationSnapshotThreshold {
@@ -176,10 +181,20 @@ func (projection *conversationProjection) conversations(ctx context.Context, ser
 	return projection.result(limit), nil
 }
 
-func (projection *conversationProjection) load(ctx context.Context, service *Service) error {
+func (projection *conversationProjection) load(ctx context.Context) error {
 	keys, err := projection.store.List(ctx, conversationSnapshotPrefix)
 	if err != nil {
 		return err
+	}
+	if len(keys) == 0 {
+		projection.values = make(map[string]*conversationAggregate)
+		projection.applied = make(map[string]struct{})
+		projection.loaded = true
+		projection.lastRefresh = time.Time{}
+		if err := projection.refresh(ctx); err != nil {
+			return err
+		}
+		return projection.writeSnapshot(ctx)
 	}
 	for index := len(keys) - 1; index >= 0; index-- {
 		snapshot, readErr := projection.readSnapshot(ctx, keys[index])
@@ -187,12 +202,23 @@ func (projection *conversationProjection) load(ctx context.Context, service *Ser
 			continue
 		}
 		projection.install(snapshot)
-		if err := projection.refresh(ctx); err == nil {
-			return nil
-		}
-		break
+		return projection.refresh(ctx)
 	}
-	return projection.rebuild(ctx, service)
+	return fmt.Errorf("no valid conversation projection snapshot; run `farfield history projections rebuild`")
+}
+
+// RebuildConversationProjection reconstructs the disposable conversation view
+// by scanning authoritative records and segments and publishing a new snapshot.
+func (service *Service) RebuildConversationProjection(ctx context.Context) (ProjectionRebuild, error) {
+	service.projection.mu.Lock()
+	defer service.projection.mu.Unlock()
+	if err := service.projection.rebuild(ctx, service); err != nil {
+		return ProjectionRebuild{}, failure("FH_PROJECTION_REBUILD_FAILED", "conversation projection could not be rebuilt", err)
+	}
+	return ProjectionRebuild{
+		Projection: "conversations", ConversationCount: len(service.projection.values),
+		SourceCount: len(service.projection.applied),
+	}, nil
 }
 
 func (projection *conversationProjection) rebuild(ctx context.Context, service *Service) error {

@@ -247,6 +247,8 @@ func runHistory(arguments []string, stdout, stderr io.Writer) int {
 		return queryRecords(arguments[1:], stdout, stderr)
 	case "conversations":
 		return conversations(arguments[1:], stdout, stderr)
+	case "projections":
+		return historyProjections(arguments[1:], stdout, stderr)
 	case "timeline":
 		return timeline(arguments[1:], stdout, stderr)
 	case "verify":
@@ -385,6 +387,32 @@ func conversations(arguments []string, stdout, stderr io.Writer) int {
 		return printError(stderr, err)
 	}
 	return printJSON(stdout, values)
+}
+
+func historyProjections(arguments []string, stdout, stderr io.Writer) int {
+	if len(arguments) == 0 || arguments[0] != "rebuild" {
+		fmt.Fprintln(stderr, "usage: farfield history projections rebuild [--store URI]")
+		return 2
+	}
+	set := flag.NewFlagSet("history projections rebuild", flag.ContinueOnError)
+	set.SetOutput(stderr)
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
+	if err := set.Parse(arguments[1:]); err != nil {
+		return 2
+	}
+	if set.NArg() != 0 {
+		fmt.Fprintln(stderr, "history projections rebuild does not accept positional arguments")
+		return 2
+	}
+	service, err := openHistory(context.Background(), *storeURI)
+	if err != nil {
+		return printError(stderr, err)
+	}
+	result, err := service.RebuildConversationProjection(context.Background())
+	if err != nil {
+		return printError(stderr, err)
+	}
+	return printJSON(stdout, result)
 }
 
 func timeline(arguments []string, stdout, stderr io.Writer) int {
@@ -625,6 +653,7 @@ func historyUsage(writer io.Writer) {
   farfield history list [--store URI]
   farfield history query [--conversation ID] [--kind KIND] [--limit N] [--store URI]
   farfield history conversations [--limit N] [--store URI]
+  farfield history projections rebuild [--store URI]
   farfield history timeline --conversation ID [--store URI]
   farfield history verify [--store URI]`))
 }
