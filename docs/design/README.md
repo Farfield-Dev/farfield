@@ -19,3 +19,4 @@ unimplemented capability available.
 | --- | --- |
 | [0001: Object-storage-native history engine](0001-object-storage-native-history.md) | Proposed |
 | [0002: Agent workload and object-storage fit](0002-agent-workload-storage-fit.md) | Proposed |
+| [0003: Native SDK experience](0003-native-sdk-experience.md) | Accepted |

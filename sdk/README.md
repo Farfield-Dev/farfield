@@ -1,11 +1,16 @@
 # SDKs
 
-Farfield's core is Go; its SDKs are native to the applications they instrument and execute.
+Farfield's core is Go; its SDKs are native to the applications they instrument
+and execute.
 
-Planned first-class packages:
+- [`python`](python/README.md): sync and async Python clients
+- [`typescript`](typescript/README.md): typed Node.js client
+- [`go`](go/README.md): idiomatic Go HTTP client
 
-- `sdk/python`: OpenAI Agents, LangChain/LangGraph, Python workers
-- `sdk/typescript`: Vercel AI SDK, OpenAI Agents JS, Node workers
-- `sdk/go`: Go workers and direct clients
+All three use the versioned HTTP protocol and share the same behavioral
+contract: stable IDs, exact-body retries, durable capture, explicit batching,
+conversation context, privacy hooks, typed errors, and Runtime journal access.
+They do not duplicate the object-storage implementation.
 
-SDKs will share protocol fixtures rather than private implementation code.
+Framework adapters remain separate packages layered on these clients. See the
+[SDK design decision](../docs/design/0003-native-sdk-experience.md).
