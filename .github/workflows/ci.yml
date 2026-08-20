@@ -46,5 +46,7 @@ jobs:
             --env MINIO_ROOT_USER="$AWS_ACCESS_KEY_ID" \
             --env MINIO_ROOT_PASSWORD="$AWS_SECRET_ACCESS_KEY" \
             quay.io/minio/minio:latest server /data
-          curl --fail --retry 20 --retry-delay 1 http://127.0.0.1:9000/minio/health/ready
+          curl --fail --silent --show-error \
+            --retry 30 --retry-delay 1 --retry-all-errors \
+            http://127.0.0.1:9000/minio/health/ready
       - run: go test ./storage/s3store -run TestS3CompatibleIntegration -count=1
