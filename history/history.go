@@ -220,13 +220,24 @@ func (service *Service) readAt(ctx context.Context, key string) (Record, error) 
 }
 
 func (service *Service) ReadContent(ctx context.Context, record Record) ([]byte, error) {
+	return service.readContent(ctx, record, nil)
+}
+
+func (service *Service) readContent(ctx context.Context, record Record, segments map[string]Segment) ([]byte, error) {
 	if err := record.Verify(); err != nil {
 		return nil, err
 	}
 	if record.SchemaVersion == RecordSchemaV2 && record.Content.Storage == "segment" {
-		segment, err := service.readSegmentAt(ctx, record.Content.Key)
-		if err != nil {
-			return nil, err
+		segment, found := segments[record.Content.Key]
+		if !found {
+			var err error
+			segment, err = service.readSegmentAt(ctx, record.Content.Key)
+			if err != nil {
+				return nil, err
+			}
+			if segments != nil {
+				segments[record.Content.Key] = segment
+			}
 		}
 		if record.Content.EntryIndex == nil || *record.Content.EntryIndex >= len(segment.Entries) {
 			return nil, failure("FH_SEGMENT_CORRUPT", "record points outside its segment", nil)
@@ -259,23 +270,30 @@ func (service *Service) ListRecords(ctx context.Context) ([]Record, error) {
 }
 
 func (service *Service) listRecords(ctx context.Context, segmentPrefix string) ([]Record, error) {
+	records, _, err := service.listRecordsWithSegments(ctx, segmentPrefix)
+	return records, err
+}
+
+func (service *Service) listRecordsWithSegments(ctx context.Context, segmentPrefix string) ([]Record, map[string]Segment, error) {
 	keys, err := service.store.List(ctx, "records/v1")
 	if err != nil {
-		return nil, failure("FH_RECORD_LIST_FAILED", "records could not be listed", err)
+		return nil, nil, failure("FH_RECORD_LIST_FAILED", "records could not be listed", err)
 	}
 	records := make([]Record, 0, len(keys))
 	for _, key := range keys {
 		record, err := service.readAt(ctx, key)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		records = append(records, record)
 	}
 	segments, err := service.listSegments(ctx, segmentPrefix)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	segmentsByKey := make(map[string]Segment, len(segments))
 	for _, segment := range segments {
+		segmentsByKey[segmentKey(segment.ID, segment.ConversationID)] = segment
 		for _, entry := range segment.Entries {
 			records = append(records, entry.Record)
 		}
@@ -283,7 +301,7 @@ func (service *Service) listRecords(ctx context.Context, segmentPrefix string) (
 	seen := make(map[string]struct{}, len(records))
 	for _, record := range records {
 		if _, exists := seen[record.ID]; exists {
-			return nil, failure("FH_DUPLICATE_RECORD", fmt.Sprintf("record id %q appears in multiple objects", record.ID), nil)
+			return nil, nil, failure("FH_DUPLICATE_RECORD", fmt.Sprintf("record id %q appears in multiple objects", record.ID), nil)
 		}
 		seen[record.ID] = struct{}{}
 	}
@@ -296,7 +314,7 @@ func (service *Service) listRecords(ctx context.Context, segmentPrefix string) (
 		}
 		return records[left].OccurredAt.Before(records[right].OccurredAt)
 	})
-	return records, nil
+	return records, segmentsByKey, nil
 }
 
 type VerificationIssue struct {

@@ -73,7 +73,7 @@ func runRuntime(arguments []string, stdout, stderr io.Writer) int {
 func createRun(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime create", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("id", "", "stable run ID; generated when omitted")
 	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
 	checkpoint := set.String("checkpoint", "", "optional JSON checkpoint")
@@ -100,7 +100,7 @@ func createRun(arguments []string, stdout, stderr io.Writer) int {
 func getRun(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime get", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -123,7 +123,7 @@ func getRun(arguments []string, stdout, stderr io.Writer) int {
 func runEvents(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime events", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -146,7 +146,7 @@ func runEvents(arguments []string, stdout, stderr io.Writer) int {
 func transitionRun(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime transition", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
 	to := set.String("to", "", "target status")
@@ -174,7 +174,7 @@ func transitionRun(arguments []string, stdout, stderr io.Writer) int {
 func saveRunCheckpoint(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime checkpoint", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
 	checkpoint := set.String("checkpoint", "", "JSON checkpoint")
@@ -201,7 +201,7 @@ func saveRunCheckpoint(arguments []string, stdout, stderr io.Writer) int {
 func verifyRuntime(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime verify", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -282,7 +282,7 @@ type batchFileRecord struct {
 func appendBatch(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history append-batch", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	file := set.String("file", "", "JSON batch file")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -335,7 +335,7 @@ func appendBatch(arguments []string, stdout, stderr io.Writer) int {
 func queryRecords(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history query", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	conversation := set.String("conversation", "", "conversation ID")
 	trace := set.String("trace", "", "trace ID")
 	kind := set.String("kind", "", "record kind")
@@ -367,7 +367,7 @@ func queryRecords(arguments []string, stdout, stderr io.Writer) int {
 func conversations(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history conversations", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	limit := set.Int("limit", 100, "maximum conversations")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -390,7 +390,7 @@ func conversations(arguments []string, stdout, stderr io.Writer) int {
 func timeline(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history timeline", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	conversation := set.String("conversation", "", "conversation ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -413,7 +413,7 @@ func timeline(arguments []string, stdout, stderr io.Writer) int {
 func runServer(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("serve", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	listen := set.String("listen", "127.0.0.1:8787", "HTTP listen address")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -454,7 +454,7 @@ func runServer(arguments []string, stdout, stderr io.Writer) int {
 func appendRecord(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history append", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	recordID := set.String("id", "", "stable record ID for idempotent retries")
 	conversation := set.String("conversation", "", "conversation ID")
 	kind := set.String("kind", "", "record kind")
@@ -493,7 +493,7 @@ func appendRecord(arguments []string, stdout, stderr io.Writer) int {
 func getRecord(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history get", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	recordID := set.String("id", "", "record ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -524,7 +524,7 @@ func getRecord(arguments []string, stdout, stderr io.Writer) int {
 func listRecords(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history list", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -542,7 +542,7 @@ func listRecords(arguments []string, stdout, stderr io.Writer) int {
 func verify(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history verify", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}

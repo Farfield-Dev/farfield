@@ -7,9 +7,9 @@ Farfield treats object storage as a database primitive, not a filesystem mounted
 Every authoritative write uses atomic create-if-absent semantics. Existing identical bytes make the operation idempotent. Existing different bytes return a conflict. A `HEAD` followed by an unconditional `PUT` does not satisfy this contract because concurrent writers could overwrite each other.
 
 Successful writes must also be immediately visible to subsequent `GET` and
-`LIST` operations. Amazon S3 provides strong read-after-write and list
-consistency; an S3-compatible endpoint must match those semantics to support
-the Runtime journal.
+`LIST` operations. Amazon S3 and Google Cloud Storage provide strong
+read-after-write and list consistency; an S3-compatible endpoint must match
+those semantics to support the Runtime journal.
 
 ## History layout
 
@@ -76,3 +76,28 @@ The local implementation writes and fsyncs a temporary file, atomically links it
 ## S3-compatible storage
 
 The S3 implementation sends `If-None-Match: *` with `PutObject`. Amazon S3 and compatible endpoints that implement this precondition can satisfy immutable creation. Compatibility is a behavioral claim, not just an API-shape claim; providers should run the storage conformance suite.
+
+## Google Cloud Storage
+
+Use a `gs://bucket/optional-prefix` store URI. The native GCS implementation
+uses the official Go client and its standard Application Default Credentials
+chain. It does not route writes through the S3 compatibility API.
+
+`PutIfAbsent` applies `DoesNotExist`, which maps to
+`ifGenerationMatch=0`. GCS commits the create only when no live object with the
+same name exists. A `412 Precondition Failed` is resolved by reading the
+existing immutable object: equal bytes are an idempotent retry, while different
+bytes are a conflict.
+
+The live suite is opt-in because it creates retained cloud objects:
+
+```bash
+FARFIELD_TEST_GCS_URI=gs://my-test-bucket/farfield \
+  go test ./storage/gcsstore -run TestGCSIntegration -count=1 -v
+```
+
+The suite verifies first creation, same-body retry, conflicting-body rejection,
+immediate reads and lists, missing objects, and concurrent-writer exclusion.
+See the official [request preconditions](https://docs.cloud.google.com/storage/docs/request-preconditions)
+and [consistency](https://docs.cloud.google.com/storage/docs/consistency)
+documentation for the provider guarantees behind this adapter.

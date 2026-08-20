@@ -1,0 +1,20 @@
+{
+  "id": "seg_e2e_cli_20260820",
+  "records": [
+    {
+      "id": "rec_e2e_cli_batch_input_20260820",
+      "conversation_id": "conv_e2e_cli_20260820",
+      "kind": "message.user",
+      "agent": "cli-smoke",
+      "content": {"text": "Can a CLI batch be retried safely?"}
+    },
+    {
+      "id": "rec_e2e_cli_batch_output_20260820",
+      "conversation_id": "conv_e2e_cli_20260820",
+      "kind": "message.assistant",
+      "agent": "cli-smoke",
+      "status": "completed",
+      "content": {"text": "Yes. The complete segment is immutable and idempotent."}
+    }
+  ]
+}

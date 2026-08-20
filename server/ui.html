@@ -21,6 +21,9 @@
     .event:last-child { border-color: transparent; }
     .kind { color: #77d5a8; font-weight: 700; }
     pre { white-space: pre-wrap; word-break: break-word; color: #cbd1da; background: #111419; border-radius: 7px; padding: 12px; }
+    details { margin-top: 8px; }
+    summary { color: #9299a6; cursor: pointer; }
+    .preview { white-space: pre-wrap; word-break: break-word; color: #cbd1da; margin-top: 8px; }
     .empty { color: #8d95a3; }
     @media (max-width: 720px) { main { grid-template-columns: 1fr; } aside { border-right: 0; border-bottom: 1px solid #262a31; } }
   </style>
@@ -34,23 +37,45 @@
   <script>
     const conversations = document.querySelector('#conversations');
     const timeline = document.querySelector('#timeline');
+    let timelineRequest = 0;
     const escapeHTML = value => String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]));
+    const byteSize = value => new TextEncoder().encode(value).length;
+    const formatBytes = bytes => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
+    function summarize(value) {
+      const content = value.content;
+      if (value.record.kind === 'tool.result' && Array.isArray(content?.content)) {
+        return `${content.content.length} web search result${content.content.length === 1 ? '' : 's'} · tool use ${content.tool_use_id || 'unknown'}`;
+      }
+      if (value.record.kind === 'model.response' && content && typeof content === 'object') {
+        return JSON.stringify({id: content.id, model: content.model, stop_reason: content.stop_reason, usage: content.usage}, null, 2);
+      }
+      if (typeof content?.text === 'string') return content.text;
+      return JSON.stringify(content, null, 2);
+    }
+    function renderContent(value) {
+      const raw = JSON.stringify(value.content, null, 2);
+      const preview = summarize(value);
+      if (raw.length <= 1800) return `<pre>${escapeHTML(raw)}</pre>`;
+      return `<div class="preview">${escapeHTML(preview.slice(0, 1200))}${preview.length > 1200 ? '…' : ''}</div><details><summary>View complete event content · ${formatBytes(byteSize(raw))}</summary><pre>${escapeHTML(raw)}</pre></details>`;
+    }
     async function loadConversations() {
       const response = await fetch('/v1/history/conversations');
       const values = await response.json();
       if (!values.length) { conversations.textContent = 'No conversations yet. Append a record to begin.'; return; }
       conversations.innerHTML = values.map(value => `<button data-id="${escapeHTML(value.id)}"><strong>${escapeHTML(value.id)}</strong><div class="meta">${value.record_count} records · ${escapeHTML(value.kinds.join(', '))}</div></button>`).join('');
       conversations.querySelectorAll('button').forEach(button => button.addEventListener('click', () => loadTimeline(button.dataset.id, button)));
-      loadTimeline(values[0].id, conversations.querySelector('button'));
+      loadTimeline(values[0].id, conversations.querySelector('button')).catch(error => timeline.textContent = error.message);
     }
     async function loadTimeline(id, button) {
+      const request = ++timelineRequest;
       conversations.querySelectorAll('button').forEach(item => item.classList.remove('active'));
       button?.classList.add('active');
       timeline.textContent = 'Loading timeline…';
       const response = await fetch(`/v1/history/conversations/${encodeURIComponent(id)}/timeline`);
       const values = await response.json();
+      if (request !== timelineRequest) return;
       if (!response.ok) { timeline.textContent = values.error?.message || 'Could not load timeline.'; return; }
-      timeline.innerHTML = `<h2>${escapeHTML(id)}</h2>` + values.map(value => `<article class="event"><div><span class="kind">${escapeHTML(value.record.kind)}</span> <span class="meta">${escapeHTML(value.record.occurred_at)}</span></div><pre>${escapeHTML(JSON.stringify(value.content, null, 2))}</pre></article>`).join('');
+      timeline.innerHTML = `<h2>${escapeHTML(id)}</h2>` + values.map(value => `<article class="event"><div><span class="kind">${escapeHTML(value.record.kind)}</span> <span class="meta">${escapeHTML(value.record.occurred_at)}</span></div>${renderContent(value)}</article>`).join('');
     }
     loadConversations().catch(error => conversations.textContent = error.message);
   </script>

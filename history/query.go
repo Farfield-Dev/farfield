@@ -55,20 +55,23 @@ type Entry struct {
 }
 
 func (service *Service) Timeline(ctx context.Context, conversationID string) ([]Entry, error) {
-	records, err := service.Query(ctx, Query{ConversationID: conversationID, Limit: -1})
+	records, segments, err := service.listRecordsWithSegments(ctx, "segments/v1/shards/"+segmentShard(conversationID))
 	if err != nil {
 		return nil, err
 	}
-	if len(records) == 0 {
-		return nil, failure("FH_NOT_FOUND", "conversation was not found", nil)
-	}
 	entries := make([]Entry, 0, len(records))
 	for _, record := range records {
-		content, err := service.ReadContent(ctx, record)
+		if record.ConversationID != conversationID {
+			continue
+		}
+		content, err := service.readContent(ctx, record, segments)
 		if err != nil {
 			return nil, err
 		}
 		entries = append(entries, Entry{Record: record, Content: json.RawMessage(content)})
+	}
+	if len(entries) == 0 {
+		return nil, failure("FH_NOT_FOUND", "conversation was not found", nil)
 	}
 	return entries, nil
 }

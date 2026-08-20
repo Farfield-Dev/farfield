@@ -33,6 +33,9 @@ jobs:
           python -m pip install -e './sdk/python[dev]'
           ruff check sdk/python
           ruff format --check sdk/python
+          ruff check examples/python-personal-agent
+          ruff format --check examples/python-personal-agent
+          python -m py_compile examples/python-personal-agent/*.py
           pyright -p sdk/python
           python -W error::ResourceWarning -m unittest discover -s sdk/python/tests -v
           python -m build sdk/python

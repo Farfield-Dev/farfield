@@ -8,6 +8,16 @@ import (
 	"github.com/Farfield-Dev/farfield/storage"
 )
 
+type countingStore struct {
+	storage.Store
+	gets map[string]int
+}
+
+func (store *countingStore) Get(ctx context.Context, key string) ([]byte, error) {
+	store.gets[key]++
+	return store.Store.Get(ctx, key)
+}
+
 func TestQueryTimelineAndConversations(t *testing.T) {
 	t.Parallel()
 	store, err := storage.OpenLocal(t.TempDir())
@@ -41,5 +51,38 @@ func TestQueryTimelineAndConversations(t *testing.T) {
 	conversations, err := service.Conversations(context.Background(), 10)
 	if err != nil || len(conversations) != 2 || conversations[0].ID != "conv_a" || conversations[0].RecordCount != 2 {
 		t.Fatalf("Conversations = %#v, %v", conversations, err)
+	}
+}
+
+func TestTimelineReadsEachSegmentOnce(t *testing.T) {
+	t.Parallel()
+	local, err := storage.OpenLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &countingStore{Store: local, gets: map[string]int{}}
+	service, err := New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	segment, err := service.AppendBatch(context.Background(), AppendBatchInput{
+		SegmentID: "seg_timeline_once",
+		Records: []AppendInput{
+			{RecordID: "rec_batch_1", ConversationID: "conv_batch", Kind: "message.user", Content: []byte(`{"text":"one"}`)},
+			{RecordID: "rec_batch_2", ConversationID: "conv_batch", Kind: "message.assistant", Content: []byte(`{"text":"two"}`)},
+			{RecordID: "rec_batch_3", ConversationID: "conv_batch", Kind: "tool.result", Content: []byte(`{"ok":true}`)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := segmentKey(segment.ID, segment.ConversationID)
+	store.gets = map[string]int{}
+	timeline, err := service.Timeline(context.Background(), "conv_batch")
+	if err != nil || len(timeline) != 3 {
+		t.Fatalf("Timeline = %#v, %v", timeline, err)
+	}
+	if store.gets[key] != 1 {
+		t.Fatalf("segment GETs = %d, want 1", store.gets[key])
 	}
 }

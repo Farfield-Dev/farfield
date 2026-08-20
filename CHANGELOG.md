@@ -6,11 +6,22 @@ All notable changes to Farfield will be documented here. The project follows sem
 
 ### Added
 
+- Native Google Cloud Storage support using Application Default Credentials and
+  atomic `ifGenerationMatch=0` creation, plus an opt-in live conformance suite.
+- A live Anthropic web-research agent example with retained GCS-backed traces,
+  durable run checkpoints, and a query helper.
+- Real-server Go and TypeScript SDK smoke examples.
 - Native Python, TypeScript, and Go SDKs with durable capture, explicit batch
   segments, conversation context, privacy hooks, typed errors, History reads,
   and Runtime journal access.
 - Exact-body retry behavior with stable client-generated IDs and timestamps.
 - SDK package, type, lint, and behavioral checks in CI.
+
+### Changed
+
+- Conversation timelines reuse already-verified segment objects, avoiding one
+  object-store read per inline record.
+- The embedded inspector summarizes and collapses large provider payloads.
 
 ## 0.1.0-alpha.1 - 2026-08-19
 

@@ -130,3 +130,26 @@ export FARFIELD_S3_PATH_STYLE=true
 ```
 
 The endpoint must implement atomic conditional `PutObject` using `If-None-Match: *`. Farfield rejects endpoints that cannot enforce immutable creation.
+
+## Use Google Cloud Storage
+
+Farfield uses the native GCS API and Application Default Credentials. A local
+developer can authenticate with the Google Cloud CLI, while production
+workloads normally inherit a service-account identity from their environment:
+
+```bash
+gcloud auth application-default login
+
+go run ./cmd/farfield serve \
+  --store gs://my-bucket/farfield/dev \
+  --listen 127.0.0.1:8787
+```
+
+Every immutable create is committed with `ifGenerationMatch=0`. Concurrent
+writers therefore cannot overwrite one another, and a lost response can be
+recovered by repeating the exact write.
+
+The [Python personal-agent example](../examples/python-personal-agent/README.md)
+is a complete GCS-backed integration: it runs live Anthropic web research,
+captures provider and semantic events, journals each run, and queries the
+retained trace through the SDK, CLI, API, and embedded inspector.

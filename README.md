@@ -21,7 +21,8 @@ The project is building an open substrate for long-running agents: durable execu
 - Detect record, payload, and immutable-write corruption.
 - Read a record and its payload without a database index.
 - Verify the authoritative store and identify orphaned blobs.
-- Use the same storage interface for local files and S3-compatible storage.
+- Use the same storage interface for local files, native Google Cloud Storage,
+  and S3-compatible storage.
 - Run everything through one `farfield` CLI binary.
 - Query records by conversation, trace, kind, agent, tool, or status.
 - Inspect conversation summaries and hydrated timelines.
@@ -153,6 +154,19 @@ farfield history verify --store s3://my-bucket/farfield
 
 AWS credentials use the standard AWS SDK credential chain. Set `FARFIELD_S3_ENDPOINT` for a compatible endpoint such as MinIO or R2, and `FARFIELD_S3_PATH_STYLE=true` when the provider requires path-style addressing.
 
+Google Cloud Storage is native rather than routed through its S3 compatibility
+API. Farfield uses GCS generation preconditions for atomic immutable creation
+and the standard Application Default Credentials chain:
+
+```bash
+gcloud auth application-default login
+farfield serve --store gs://my-bucket/farfield --listen 127.0.0.1:8787
+```
+
+See the [real Python personal-agent example](examples/python-personal-agent/README.md)
+for a Claude web-research agent that records complete messages, tool calls,
+tool results, citations, usage, failures, and durable run checkpoints.
+
 ## Install
 
 From a tagged release:
@@ -180,7 +194,7 @@ Python / TypeScript / Go SDKs
        ingest · history · runtime · query · replay
                          │
                          ▼
-              S3-compatible object storage
+          GCS or S3-compatible object storage
                    durable authority
                          │
                          ▼
@@ -200,7 +214,8 @@ This first release is useful for local evaluation, SDK development, and proving 
 
 - Queries currently scan authoritative records and relevant conversation shards; manifests and a rebuildable query projection are next.
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
-- S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible providers are rejected.
+- S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible
+  providers are rejected. Native GCS writes use `ifGenerationMatch=0`.
 - Framework adapters and opt-in background processors are not included yet;
   the native SDKs currently provide direct durable capture and explicit batch
   segments.

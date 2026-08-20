@@ -62,11 +62,20 @@ func TestOpenAPIListsImplementedRoutes(t *testing.T) {
 func TestRelativeMarkdownLinksResolve(t *testing.T) {
 	root := filepath.Join("..", "..")
 	pattern := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`)
+	generatedDirectories := map[string]bool{
+		".farfield":    true,
+		".git":         true,
+		".ruff_cache":  true,
+		".venv":        true,
+		"__pycache__":  true,
+		"dist":         true,
+		"node_modules": true,
+	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".farfield") {
+		if entry.IsDir() && generatedDirectories[entry.Name()] {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || filepath.Ext(path) != ".md" {

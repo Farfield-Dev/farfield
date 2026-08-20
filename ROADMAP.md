@@ -6,7 +6,7 @@ Farfield's destination is an open durable execution and observability platform f
 
 - [x] Go module, CLI, storage boundary, and package architecture
 - [x] Canonical immutable History records and content-addressed payloads
-- [x] Local filesystem and S3-compatible storage implementations
+- [x] Local filesystem, native GCS, and S3-compatible storage implementations
 - [x] Verification and deterministic conformance fixtures
 - [x] Immutable segmented history log with inline content and external blobs
 - [ ] Sharded manifests and compacted range-readable packs ([design](docs/design/0001-object-storage-native-history.md))
