@@ -4,6 +4,14 @@ All notable changes to Farfield will be documented here. The project follows sem
 
 ## Unreleased
 
+### Added
+
+- Native Python, TypeScript, and Go SDKs with durable capture, explicit batch
+  segments, conversation context, privacy hooks, typed errors, History reads,
+  and Runtime journal access.
+- Exact-body retry behavior with stable client-generated IDs and timestamps.
+- SDK package, type, lint, and behavioral checks in CI.
+
 ## 0.1.0-alpha.1 - 2026-08-19
 
 ### Added

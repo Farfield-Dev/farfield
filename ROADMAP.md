@@ -14,7 +14,8 @@ Farfield's destination is an open durable execution and observability platform f
 - [ ] Agent-shaped object-storage benchmark and recovery harness ([workload model](docs/design/0002-agent-workload-storage-fit.md))
 - [x] Versioned HTTP ingestion and local inspector
 - [ ] OTLP ingestion
-- [ ] Python and TypeScript capture SDKs
+- [x] Native Python, TypeScript, and Go SDKs for capture, query, and Runtime
+- [ ] Framework adapters and bounded background SDK processors
 - [ ] Release artifacts, Homebrew installation, and signed containers
 
 ## Next: durable agent execution

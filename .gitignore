@@ -1,7 +1,11 @@
 .DS_Store
 .farfield/
+.ruff_cache/
+__pycache__/
+*.py[cod]
 .idea/
 .vscode/
 bin/
 coverage.out
 dist/
+node_modules/

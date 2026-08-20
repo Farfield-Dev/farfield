@@ -33,6 +33,10 @@ The project is building an open substrate for long-running agents: durable execu
 - Reconstruct and verify attempt counts, current state, and the complete
   hash-chained run journal.
 - Serialize concurrent run writers with one atomic object-store operation.
+- Capture and inspect History through native Python, TypeScript, and Go SDKs.
+- Keep conversation metadata isolated across Python async tasks, Node promise
+  chains, and explicit Go contexts.
+- Redact or drop sensitive events before they leave the agent process.
 
 ## Try it in two minutes
 
@@ -46,6 +50,39 @@ go run ./cmd/farfield serve
 ```
 
 Open [http://127.0.0.1:8787](http://127.0.0.1:8787) to inspect the captured conversation and its hydrated event timeline.
+
+## Use the native SDKs
+
+Each SDK has the same behavioral contract—durable acknowledgments, stable IDs,
+exact-body retries, scoped conversation metadata, typed errors, privacy hooks,
+batched segments, History reads, and Runtime access—expressed idiomatically for
+its language.
+
+```python
+from farfield import Farfield
+
+ff = Farfield()
+with ff.conversation(agent="support-agent") as conversation:
+    conversation.message("user", {"text": "Where is my order?"})
+    conversation.tool_result("lookup_order", {"status": "shipped"})
+
+print(ff.timeline(conversation.id))
+```
+
+```ts
+import { Farfield } from "@farfield/sdk";
+
+const ff = new Farfield();
+await ff.withConversation({ agent: "support-agent" }, async (conversation) => {
+  await conversation.message("user", { text: "Where is my order?" });
+  await conversation.toolResult("lookup_order", { status: "shipped" });
+});
+```
+
+See the [Python](sdk/python/README.md),
+[TypeScript](sdk/typescript/README.md), and [Go](sdk/go/README.md) guides. The
+packages are release candidates in this repository; registry publication is a
+separate release step.
 
 You can also capture from any language over HTTP. The segment endpoint is the
 preferred ingestion path for SDKs because one object commit can make multiple
@@ -164,7 +201,9 @@ This first release is useful for local evaluation, SDK development, and proving 
 - Queries currently scan authoritative records and relevant conversation shards; manifests and a rebuildable query projection are next.
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
 - S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible providers are rejected.
-- Framework-native Python and TypeScript capture SDKs are planned but not included yet.
+- Framework adapters and opt-in background processors are not included yet;
+  the native SDKs currently provide direct durable capture and explicit batch
+  segments.
 - Runtime durably journals run state and checkpoints but does not yet schedule
   workers, wake timers, deliver signals, fence leases, or execute user code.
 
