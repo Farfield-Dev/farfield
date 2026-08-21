@@ -121,7 +121,7 @@ func New(options ...Option) (*Client, error) {
 }
 
 func (client *Client) Capture(ctx context.Context, input CaptureInput) (Record, error) {
-	prepared, err := client.prepareCapture(ctx, input)
+	prepared, err := client.PrepareCapture(ctx, input)
 	if err != nil {
 		return Record{}, err
 	}
@@ -139,7 +139,7 @@ func (client *Client) CaptureBatch(ctx context.Context, input BatchInput) (Segme
 	records := make([]CaptureInput, 0, len(input.Records))
 	conversationID := ""
 	for _, value := range input.Records {
-		prepared, err := client.prepareCapture(ctx, value)
+		prepared, err := client.PrepareCapture(ctx, value)
 		if errors.Is(err, ErrDropped) {
 			continue
 		}
@@ -156,6 +156,25 @@ func (client *Client) CaptureBatch(ctx context.Context, input BatchInput) (Segme
 	if len(records) == 0 {
 		return Segment{}, ErrDropped
 	}
+	input.Records = records
+	return client.CapturePreparedBatch(ctx, input)
+}
+
+// CapturePreparedBatch sends records previously snapshotted with
+// PrepareCapture. It is primarily used by background processors.
+func (client *Client) CapturePreparedBatch(ctx context.Context, input BatchInput) (Segment, error) {
+	if len(input.Records) == 0 {
+		return Segment{}, errors.New("farfield: batch requires at least one record")
+	}
+	conversationID := input.Records[0].ConversationID
+	if conversationID == "" {
+		return Segment{}, errors.New("farfield: conversation ID is required")
+	}
+	for _, record := range input.Records[1:] {
+		if record.ConversationID != conversationID {
+			return Segment{}, errors.New("farfield: every record in a batch must belong to one conversation")
+		}
+	}
 	if input.ID == "" {
 		var err error
 		input.ID, err = newID("seg_")
@@ -163,7 +182,6 @@ func (client *Client) CaptureBatch(ctx context.Context, input BatchInput) (Segme
 			return Segment{}, fmt.Errorf("farfield: generate segment ID: %w", err)
 		}
 	}
-	input.Records = records
 	var segment Segment
 	if err := client.doJSON(ctx, http.MethodPost, "/v1/history/segments", input, &segment); err != nil {
 		return Segment{}, err
@@ -400,7 +418,9 @@ func (conversation Conversation) CaptureBatch(ctx context.Context, records []Cap
 	return conversation.client.CaptureBatch(ctx, BatchInput{Records: records})
 }
 
-func (client *Client) prepareCapture(ctx context.Context, input CaptureInput) (CaptureInput, error) {
+// PrepareCapture snapshots caller-local scope, privacy hooks, IDs, and
+// timestamps without sending the record.
+func (client *Client) PrepareCapture(ctx context.Context, input CaptureInput) (CaptureInput, error) {
 	scope := client.defaults
 	if contextual, ok := ScopeFromContext(ctx); ok {
 		scope = mergeScope(scope, contextual)

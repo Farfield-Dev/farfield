@@ -4,20 +4,24 @@ Farfield makes object storage the durable source of truth for agent history and 
 
 Current release:
 - Go core and CLI
-- immutable local and S3-compatible history storage
+- immutable local, native GCS, and S3-compatible history storage
 - content-addressed JSON payloads
 - idempotent multi-record segments with inline small content
-- idempotent append, read, query, conversation timeline, and verify
+- idempotent append, read, structured query, full-text search, conversation
+  summaries/timelines, and verification
 - local HTTP API and embedded inspector
+- OTLP/HTTP protobuf and JSON ingestion with OTel GenAI and OpenInference
+  normalization
+- native Python, TypeScript, and Go SDKs with bounded background processors
+- direct OpenAI Agents and Claude Agent SDK adapters for Python and TypeScript
 - immutable, hash-chained Runtime journal
 - validated transitions, attempts, checkpoints, and idempotent recovery
 - Runtime Go API, HTTP routes, CLI, and whole-store verification
 
 Not implemented yet:
 - worker scheduling, leases, signals, timers, and automatic resumption
-- rebuildable high-scale query projection
+- sharded high-scale query projections and compacted range-readable packs
 - authentication and multi-tenancy
-- Python and TypeScript framework SDKs
 
 Documentation:
 - README.md
@@ -25,9 +29,11 @@ Documentation:
 - docs/architecture.md
 - docs/storage.md
 - docs/http-api.md
+- docs/integrations.md
 - docs/when-not-to-use.md
 - docs/design/README.md
 - docs/design/0001-object-storage-native-history.md
 - docs/design/0002-agent-workload-storage-fit.md
+- docs/design/0007-protocol-first-integrations.md
 - ROADMAP.md
 - openapi.yaml

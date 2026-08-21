@@ -57,6 +57,36 @@ const ff = new Farfield({
 `withConversation` uses `AsyncLocalStorage.run()`, so scoped IDs and tags follow
 promises and callbacks without leaking across concurrent requests.
 
+## Background capture
+
+```ts
+import { BackgroundProcessor, Farfield } from "@farfield/sdk";
+
+const processor = new BackgroundProcessor(new Farfield(), {
+  maxQueueSize: 8192,
+  maxBatchSize: 128,
+});
+await processor.submit({
+  conversationId: "conv_123",
+  kind: "model.generation",
+  content: { model: "claude" },
+});
+
+if (!(await processor.shutdown())) throw new Error("Farfield delivery failed");
+```
+
+`submit()` acknowledges bounded queue admission. `flush()` and `shutdown()` are
+the delivery boundaries; counters report committed, dropped, failed, pending,
+and batch totals.
+
+## Agent frameworks
+
+OpenAI Agents and Claude Agent SDK have typed adapters at
+`@farfield/sdk/integrations/openai-agents` and
+`@farfield/sdk/integrations/claude-agent-sdk`. Frameworks that emit OTel GenAI
+or OpenInference send directly to Farfield's OTLP endpoint. See the complete
+[integration guide](../../docs/integrations.md).
+
 ## Explore and resume
 
 ```ts
@@ -67,4 +97,4 @@ const events = await ff.runEvents(run.id);
 ```
 
 The package is ESM-only, requires Node 20+, ships declarations and source maps,
-and has no runtime dependencies.
+and has no required runtime dependencies. Agent SDK peers are optional.

@@ -25,14 +25,17 @@ A run can contribute records to a conversation, but a conversation is not a run.
 ```text
 cmd/farfield
     └── internal/cli
+          ├── server ──► ingest/otlp ──► history
           ├── history ──► storage
-          └── internal/storeopen ──► storage/s3store
+          └── internal/storeopen ──► storage/{s3store,gcsstore}
 
 runtime ──► storage        immutable durable journal
 
+sdk/{python,typescript,go} ──► versioned HTTP and OTLP protocols
+
 internal/canonicaljson     private persisted-byte encoding
 internal/identity          private identifier generation
-protocol/                  language-neutral contracts
+openapi.yaml               language-neutral HTTP contract
 ```
 
 Top-level packages represent stable product concepts. Implementation details remain under `internal/`. There is deliberately no `core`, `common`, or `utils` package.

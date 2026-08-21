@@ -31,6 +31,36 @@ segment, err := client.Conversation("conv_123").CaptureBatch(ctx, []farfield.Cap
 })
 ```
 
+Use the bounded processor when capture should not block an agent turn:
+
+```go
+processor, err := farfield.NewBackgroundProcessor(client, farfield.ProcessorOptions{
+    MaxQueueSize: 8192,
+    MaxBatchSize: 128,
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+accepted, err := processor.Submit(ctx, farfield.CaptureInput{
+    Kind: "model.generation",
+    Content: map[string]any{"model": "claude"},
+})
+if err != nil {
+    log.Fatal(err)
+}
+if !accepted {
+    log.Print("Farfield capture queue is full")
+}
+if err := processor.Shutdown(context.Background()); err != nil {
+    log.Fatal(err)
+}
+```
+
+`Submit` acknowledges queue admission, not durability. `Flush` and `Shutdown`
+wait for admitted records and return delivery errors. `Stats` exposes queue,
+commit, drop, failure, and batch counters.
+
 Use `client.NewConversation()` when Farfield should generate the conversation
 ID, or `client.Conversation("conv_123")` when your application already owns it.
 The returned helper exposes the resolved value through `ID()`.

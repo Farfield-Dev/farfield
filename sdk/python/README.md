@@ -54,6 +54,38 @@ async with ff.conversation("conv_123") as conversation:
 Conversation metadata is task-local through `contextvars`, so concurrent async
 tasks do not leak IDs or tags into one another.
 
+## Background capture
+
+Use the bounded processor when capture must stay off the agent's hot path:
+
+```python
+from farfield import BackgroundProcessor, Event
+
+processor = BackgroundProcessor(ff, max_queue_size=8192, max_batch_size=128)
+processor.submit(Event("model.generation", {"model": "claude"}, conversation_id="conv_123"))
+
+if not processor.shutdown(timeout=10):
+    raise RuntimeError(processor.stats().last_error or "Farfield delivery timed out")
+```
+
+`submit()` acknowledges queue admission, not durability. `flush()` and
+`shutdown()` are explicit delivery boundaries. The processor snapshots caller
+context and privacy policy before enqueueing, groups events by conversation,
+and exposes committed, dropped, failed, pending, and batch counters.
+
+## Agent frameworks
+
+Optional adapters are included for OpenAI Agents and Claude Agent SDK:
+
+```bash
+pip install 'farfield[openai-agents]'
+pip install 'farfield[claude-agent-sdk]'
+```
+
+Frameworks that emit OTel GenAI or OpenInference traces send directly to
+Farfield's OTLP endpoint. See the complete [integration
+guide](../../docs/integrations.md).
+
 ## Redact before data leaves the process
 
 ```python
@@ -79,3 +111,4 @@ events = ff.run_events(run.id)
 ```
 
 The core package has no runtime dependencies and supports Python 3.10+.
+Framework packages are only installed through their named extras.

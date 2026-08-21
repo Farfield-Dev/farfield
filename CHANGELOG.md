@@ -21,6 +21,13 @@ breaking protocol changes.
 - Embedded BM25 full-text search with phrase and prefix syntax, exact metadata
   and tag filters, snippets, automatic repair, HTTP/CLI access, and native SDK
   methods.
+- OTLP/HTTP protobuf and JSON trace ingestion with gzip, partial-success
+  responses, durable idempotent segments, and OTel GenAI/OpenInference
+  normalization.
+- Bounded background capture processors for Python, TypeScript, and Go with
+  explicit flush/shutdown semantics and delivery statistics.
+- Tested OpenAI Agents and Claude Agent SDK adapters for Python and TypeScript,
+  plus documented OTLP paths for mainstream agent frameworks.
 
 ### Changed
 

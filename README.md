@@ -32,6 +32,8 @@ The project is building an open substrate for long-running agents: durable execu
   filters.
 - Inspect conversation summaries and hydrated timelines.
 - Ingest and query over a versioned HTTP API.
+- Ingest OTLP/HTTP protobuf or JSON traces, including gzip and standard partial
+  success, with idempotent durable acknowledgments.
 - Browse captured conversations in the embedded local inspector.
 - Create durable runs without a database or mutable state row.
 - Commit validated run transitions and canonical JSON checkpoints.
@@ -40,6 +42,12 @@ The project is building an open substrate for long-running agents: durable execu
   hash-chained run journal.
 - Serialize concurrent run writers with one atomic object-store operation.
 - Capture and inspect History through native Python, TypeScript, and Go SDKs.
+- Batch high-volume capture through bounded, observable background processors
+  with explicit flush and shutdown boundaries.
+- Capture OpenAI Agents and Claude Agent SDK lifecycles through tested Python
+  and TypeScript adapters.
+- Normalize OTel GenAI, OpenInference, LangSmith, and Vercel AI SDK conventions
+  used by mainstream agent frameworks.
 - Keep conversation metadata isolated across Python async tasks, Node promise
   chains, and explicit Go contexts.
 - Redact or drop sensitive events before they leave the agent process.
@@ -89,6 +97,25 @@ See the [Python](sdk/python/README.md),
 [TypeScript](sdk/typescript/README.md), and [Go](sdk/go/README.md) guides. The
 packages are release candidates in this repository; registry publication is a
 separate release step.
+
+## Connect an agent framework
+
+Most frameworks need no Farfield-specific callback. Point their OTLP/HTTP
+exporter at the local server:
+
+```bash
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:8787/v1/traces
+export OTEL_SERVICE_NAME=my-agent
+```
+
+Farfield has documented paths for PydanticAI, AutoGen, Google ADK, Strands,
+Vercel AI SDK, Mastra, Semantic Kernel, Microsoft Agent Framework, LangChain,
+LangGraph, LlamaIndex, CrewAI, Agno, DSPy, Haystack, smolagents, BeeAI, Spring
+AI, LangChain4j, AG2, TanStack AI, Bedrock Agent Runtime, and MCP. OpenAI Agents
+and Claude Agent SDK also have direct adapters because their supported
+extension surfaces expose richer proprietary lifecycle data. See the
+[framework integration guide](docs/integrations.md).
 
 You can also capture from any language over HTTP. The segment endpoint is the
 preferred ingestion path for SDKs because one object commit can make multiple
@@ -191,8 +218,8 @@ docker run --rm -p 8787:8787 -v "$PWD/.farfield:/data" farfield
 ## Architecture
 
 ```text
-Python / TypeScript / Go SDKs
-        framework-native capture and workers
+Python / TypeScript / Go SDKs · OTLP/HTTP · direct framework adapters
+                  capture and background processors
                          │
                 versioned protocols
                          ▼
@@ -234,9 +261,10 @@ multi-tenant observability backend or worker scheduler:
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
 - S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible
   providers are rejected. Native GCS writes use `ifGenerationMatch=0`.
-- Framework adapters and opt-in background processors are not included yet;
-  the native SDKs currently provide direct durable capture and explicit batch
-  segments.
+- OTLP normalization covers OTel GenAI, OpenInference, LangSmith, and Vercel AI
+  SDK conventions, but those conventions are still evolving. Raw attributes,
+  events, links, resources, and scopes remain preserved so projections can be
+  rebuilt as mappings change.
 - Runtime durably journals run state and checkpoints but does not yet schedule
   workers, wake timers, deliver signals, fence leases, or execute user code.
 
@@ -249,9 +277,9 @@ cmd/farfield/          CLI and local server entrypoint
 history/               immutable agent-history domain
 runtime/               durable-execution protocol and state machine
 server/                HTTP API and embedded inspector
+ingest/                standard and framework protocol normalization
 storage/               object-storage contract and implementations
 internal/              private shared mechanics
-protocol/              language-neutral schemas and fixtures
 sdk/                   native SDK homes
 docs/                  design and operational documentation
 ```

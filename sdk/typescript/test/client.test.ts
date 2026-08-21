@@ -1,8 +1,32 @@
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { afterEach, beforeEach, test } from "node:test";
+import {
+  BatchTraceProcessor,
+  setTraceProcessors,
+  withAgentSpan,
+  withFunctionSpan,
+  withGenerationSpan,
+  withTrace,
+} from "@openai/agents";
+import type {
+  HookCallbackMatcher,
+  PostToolUseHookInput,
+  PreToolUseHookInput,
+  UserPromptSubmitHookInput,
+} from "@anthropic-ai/claude-agent-sdk";
 
-import { APIError, DroppedEvent, Farfield, type Event, type Json, type WireEvent } from "../src/index.js";
+import {
+  APIError,
+  BackgroundProcessor,
+  DroppedEvent,
+  Farfield,
+  FarfieldClaudeAgentHooks,
+  FarfieldOpenAIAgentsExporter,
+  type Event,
+  type Json,
+  type WireEvent,
+} from "../src/index.js";
 
 interface Received {
   method: string;
@@ -27,7 +51,10 @@ beforeEach(async () => {
   closeServer = () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 });
 
-afterEach(async () => closeServer?.());
+afterEach(async () => {
+  setTraceProcessors([]);
+  await closeServer?.();
+});
 
 test("capture scopes metadata and retries the identical body", async () => {
   recordFailures = 1;
@@ -109,6 +136,161 @@ test("invalid JSON is rejected before transport", async () => {
     TypeError,
   );
   assert.equal(requests.length, 0);
+});
+
+test("background processor snapshots scope, batches by conversation, and flushes", async () => {
+  const ff = new Farfield({ endpoint, defaults: { tags: { env: "test" } } });
+  const processor = new BackgroundProcessor(ff, { maxBatchSize: 10, scheduleDelayMs: 5 });
+  await ff.withConversation({ id: "conv_one", agent: "researcher" }, async () => {
+    assert.equal(await processor.submit({ kind: "message.user", content: "hello" }), true);
+    assert.equal(await processor.submit({ kind: "message.assistant", content: "hi" }), true);
+  });
+  assert.equal(
+    await processor.submit({ conversationId: "conv_two", kind: "tool.result", tool: "search", content: { ok: true } }),
+    true,
+  );
+  assert.equal(await processor.flush(), true);
+  assert.equal(await processor.shutdown(), true);
+
+  const segments = requests
+    .filter((request) => request.path === "/v1/history/segments")
+    .map((request) => JSON.parse(request.body) as { records: WireEvent[] });
+  assert.equal(segments.length, 2);
+  const groups = new Map(segments.map((segment) => [segment.records[0]!.conversation_id, segment.records]));
+  assert.equal(groups.get("conv_one")?.length, 2);
+  assert.equal(groups.get("conv_one")?.[0]?.agent, "researcher");
+  assert.deepEqual(groups.get("conv_one")?.[0]?.tags, { env: "test" });
+  assert.deepEqual(processor.stats(), {
+    enqueued: 3,
+    committed: 3,
+    dropped: 0,
+    failed: 0,
+    batches: 2,
+    pending: 0,
+  });
+});
+
+test("background processor reports delivery failures", async () => {
+  const errors: unknown[] = [];
+  const ff = new Farfield({ endpoint: "http://127.0.0.1:1", maxRetries: 0, timeoutMs: 50 });
+  const processor = new BackgroundProcessor(ff, {
+    scheduleDelayMs: 0,
+    onError(error) {
+      errors.push(error);
+    },
+  });
+  assert.equal(await processor.submit({ conversationId: "conv_fail", kind: "message.user", content: "hello" }), true);
+  assert.equal(await processor.flush(), false);
+  assert.equal(await processor.shutdown(), false);
+  assert.equal(processor.stats().failed, 1);
+  assert.equal(errors.length, 1);
+});
+
+test("OpenAI Agents SDK trace lifecycle is captured through its real exporter API", async () => {
+  const exporter = new FarfieldOpenAIAgentsExporter(new Farfield({ endpoint }), { defaultAgent: "demo" });
+  const processor = new BatchTraceProcessor(exporter, { scheduleDelay: 60_000 });
+  setTraceProcessors([processor]);
+
+  await withTrace(
+    "research workflow",
+    async () =>
+      withAgentSpan(
+        async () => {
+          await withGenerationSpan(async () => undefined, {
+            spanId: "span_1123456789abcdef0123456789abcdef",
+            data: {
+              input: [{ role: "user", content: "Find an answer" }],
+              output: [{ role: "assistant", content: "I found it" }],
+              model: "gpt-test",
+              usage: { input_tokens: 4, output_tokens: 3 },
+            },
+          });
+          await withFunctionSpan(async () => undefined, {
+            spanId: "span_2123456789abcdef0123456789abcdef",
+            data: { name: "web_search", input: '{"q":"Farfield"}', output: '{"results":1}' },
+          });
+        },
+        { spanId: "span_0123456789abcdef0123456789abcdef", data: { name: "researcher" } },
+      ),
+    {
+      traceId: "trace_0123456789abcdef0123456789abcdef",
+      groupId: "conversation_openai_agents",
+      metadata: { tenant: "test" },
+    },
+  );
+  await processor.forceFlush();
+  await processor.shutdown();
+  await exporter.shutdown();
+
+  const segments = requests
+    .filter((request) => request.path === "/v1/history/segments")
+    .map((request) => JSON.parse(request.body) as { records: WireEvent[] });
+  const records = segments.flatMap((segment) => segment.records);
+  assert.equal(records.length, 4);
+  assert.deepEqual(new Set(records.map((record) => record.conversation_id)), new Set(["conversation_openai_agents"]));
+  assert.deepEqual(
+    new Set(records.map((record) => record.kind)),
+    new Set(["agent.trace", "agent.invoke", "model.generation", "tool.execution"]),
+  );
+  assert.equal(records.find((record) => record.kind === "tool.execution")?.tool, "web_search");
+  assert.deepEqual(exporter.stats(), {
+    traces: 1,
+    spans: 3,
+    bufferedSpans: 0,
+    cachedTraces: 0,
+    failedExports: 0,
+  });
+});
+
+test("Claude Agent SDK hook lifecycle is captured through its real callback types", async () => {
+  const integration = new FarfieldClaudeAgentHooks(new Farfield({ endpoint }), {
+    defaultAgent: "claude-code",
+    scheduleDelayMs: 5,
+  });
+  const matchers = integration.matchers({ timeout: 2 });
+  const preMatcher: HookCallbackMatcher = matchers.PreToolUse![0]!;
+  const context = { signal: new AbortController().signal };
+  const common = {
+    session_id: "session_claude_agent",
+    transcript_path: "/tmp/transcript.jsonl",
+    cwd: "/workspace",
+  };
+  const prompt = {
+    ...common,
+    hook_event_name: "UserPromptSubmit",
+    prompt: "Inspect the repo",
+  } satisfies UserPromptSubmitHookInput;
+  const pre = {
+    ...common,
+    hook_event_name: "PreToolUse",
+    tool_name: "Read",
+    tool_input: { file_path: "README.md" },
+    tool_use_id: "toolu_01",
+  } satisfies PreToolUseHookInput;
+  const post = {
+    ...common,
+    hook_event_name: "PostToolUse",
+    tool_name: "Read",
+    tool_input: { file_path: "README.md" },
+    tool_response: { content: "Farfield" },
+    tool_use_id: "toolu_01",
+  } satisfies PostToolUseHookInput;
+
+  await matchers.UserPromptSubmit![0]!.hooks[0]!(prompt, undefined, context);
+  await preMatcher.hooks[0]!(pre, "toolu_01", context);
+  await matchers.PostToolUse![0]!.hooks[0]!(post, "toolu_01", context);
+  assert.equal(await integration.shutdown(), true);
+
+  const records = requests
+    .filter((request) => request.path === "/v1/history/segments")
+    .flatMap((request) => (JSON.parse(request.body) as { records: WireEvent[] }).records);
+  assert.equal(records.length, 3);
+  assert.deepEqual(new Set(records.map((record) => record.conversation_id)), new Set(["session_claude_agent"]));
+  assert.deepEqual(new Set(records.map((record) => record.kind)), new Set(["message.user", "tool.call", "tool.result"]));
+  const toolResult = records.find((record) => record.kind === "tool.result");
+  assert.equal(toolResult?.tool, "Read");
+  assert.equal((toolResult?.content as { schema: string }).schema, "farfield.claude_agent_sdk.hook.v1");
+  assert.equal(integration.stats().committed, 3);
 });
 
 test("history reads and runtime operations cover the complete API", async () => {

@@ -10,7 +10,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
-from farfield import APIError, AsyncFarfield, DroppedEvent, Event, Farfield, Scope
+from farfield import (
+    APIError,
+    AsyncFarfield,
+    BackgroundProcessor,
+    DroppedEvent,
+    Event,
+    Farfield,
+    Scope,
+)
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -168,7 +176,7 @@ def _runtime_event(run_id: str, operation_id: str, to: str) -> dict[str, Any]:
 
 
 @contextmanager
-def _server() -> Generator[tuple[str, type[_Handler]], None, None]:
+def test_server() -> Generator[tuple[str, type[_Handler]], None, None]:
     handler = type("Handler", (_Handler,), {"requests": [], "fail_records": 0})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -185,7 +193,7 @@ def _server() -> Generator[tuple[str, type[_Handler]], None, None]:
 
 class FarfieldTests(unittest.TestCase):
     def test_capture_retries_the_exact_body(self) -> None:
-        with _server() as (endpoint, handler):
+        with test_server() as (endpoint, handler):
             handler.fail_records = 1
             client = Farfield(
                 endpoint=endpoint,
@@ -203,7 +211,7 @@ class FarfieldTests(unittest.TestCase):
         self.assertEqual({"env": "test"}, payload["tags"])
 
     def test_conversation_and_batch_are_scoped(self) -> None:
-        with _server() as (endpoint, handler):
+        with test_server() as (endpoint, handler):
             client = Farfield(endpoint=endpoint, max_retries=0)
             with client.conversation(
                 "conv_scope", trace_id="trace_one", tags={"tenant": "acme"}
@@ -225,7 +233,7 @@ class FarfieldTests(unittest.TestCase):
                 return None
             return event.with_updates(content="[redacted]")
 
-        with _server() as (endpoint, handler):
+        with test_server() as (endpoint, handler):
             client = Farfield(endpoint=endpoint, before_send=redact)
             client.capture("message.user", "secret", conversation_id="conv_one")
             with self.assertRaises(DroppedEvent):
@@ -235,14 +243,62 @@ class FarfieldTests(unittest.TestCase):
         self.assertEqual(1, len(handler.requests))
 
     def test_invalid_json_is_rejected_before_transport(self) -> None:
-        with _server() as (endpoint, handler):
+        with test_server() as (endpoint, handler):
             client = Farfield(endpoint=endpoint)
             with self.assertRaises(ValueError):
                 client.capture("metric", float("nan"), conversation_id="conv_one")
         self.assertEqual([], handler.requests)
 
+    def test_background_processor_batches_by_conversation_and_flushes(self) -> None:
+        with test_server() as (endpoint, handler):
+            client = Farfield(endpoint=endpoint, defaults=Scope(tags={"env": "test"}))
+            processor = BackgroundProcessor(client, max_batch_size=10, schedule_delay=0.01)
+            with client.conversation("conv_one", agent="researcher"):
+                self.assertTrue(processor.submit(Event("message.user", "hello")))
+                self.assertTrue(processor.submit(Event("message.assistant", "hi")))
+            self.assertTrue(
+                processor.submit(
+                    Event("tool.result", {"ok": True}, conversation_id="conv_two", tool="search")
+                )
+            )
+            self.assertTrue(processor.flush(timeout=2))
+            self.assertTrue(processor.shutdown())
+
+        requests = [
+            json.loads(body) for _, path, body in handler.requests if path == "/v1/history/segments"
+        ]
+        self.assertEqual(2, len(requests))
+        groups = {
+            request["conversation_id"]
+            if "conversation_id" in request
+            else request["records"][0]["conversation_id"]: request
+            for request in requests
+        }
+        self.assertEqual(2, len(groups["conv_one"]["records"]))
+        self.assertEqual("researcher", groups["conv_one"]["records"][0]["agent"])
+        self.assertEqual({"env": "test"}, groups["conv_one"]["records"][0]["tags"])
+        stats = processor.stats()
+        self.assertEqual(3, stats.enqueued)
+        self.assertEqual(3, stats.committed)
+        self.assertEqual(0, stats.pending)
+        self.assertEqual(2, stats.batches)
+
+    def test_background_processor_reports_delivery_failure(self) -> None:
+        client = Farfield(endpoint="http://127.0.0.1:1", max_retries=0, timeout=0.05)
+        errors: list[Exception] = []
+        processor = BackgroundProcessor(client, schedule_delay=0, on_error=errors.append)
+        self.assertTrue(
+            processor.submit(Event("message.user", "hello", conversation_id="conv_fail"))
+        )
+        self.assertFalse(processor.flush(timeout=2))
+        self.assertFalse(processor.shutdown())
+        stats = processor.stats()
+        self.assertEqual(1, stats.failed)
+        self.assertEqual(0, stats.committed)
+        self.assertEqual(1, len(errors))
+
     def test_read_surface_and_runtime(self) -> None:
-        with _server() as (endpoint, handler):
+        with test_server() as (endpoint, handler):
             client = Farfield(endpoint=endpoint)
             self.assertTrue(client.health())
             self.assertEqual(
@@ -266,7 +322,7 @@ class FarfieldTests(unittest.TestCase):
             self.assertEqual("running", client.checkpoint_run("run_one", {"step": 1}).to)
 
     def test_errors_are_typed(self) -> None:
-        with _server() as (endpoint, _):
+        with test_server() as (endpoint, _):
             client = Farfield(endpoint=endpoint, max_retries=0)
             with self.assertRaises(APIError) as raised:
                 client.capture("message.user", None, conversation_id="error")
@@ -284,7 +340,7 @@ class FarfieldTests(unittest.TestCase):
 
             await asyncio.gather(capture("conv_a"), capture("conv_b"))
 
-        with _server() as (endpoint, handler):
+        with test_server() as (endpoint, handler):
             asyncio.run(run(endpoint))
         values = {json.loads(body)["conversation_id"] for _, _, body in handler.requests}
         self.assertEqual({"conv_a", "conv_b"}, values)

@@ -25,6 +25,39 @@ paths:
                 properties:
                   ok: {type: boolean}
                   service: {const: farfield}
+  /v1/traces:
+    post:
+      summary: Export OpenTelemetry traces over OTLP/HTTP
+      description: Accepts OTLP ExportTraceServiceRequest payloads as protobuf or OTLP JSON. Gzip content encoding is supported. Valid spans are durably committed in idempotent conversation-local segments; invalid spans are reported through OTLP partial_success.
+      operationId: exportOTLPTraces
+      requestBody:
+        required: true
+        content:
+          application/x-protobuf:
+            schema: {type: string, format: binary}
+          application/protobuf:
+            schema: {type: string, format: binary}
+          application/json:
+            schema: {type: object, additionalProperties: true}
+      responses:
+        "200":
+          description: OTLP export accepted, possibly with partial span rejection
+          content:
+            application/x-protobuf:
+              schema: {type: string, format: binary}
+            application/json:
+              schema:
+                type: object
+                properties:
+                  partialSuccess:
+                    type: object
+                    properties:
+                      rejectedSpans: {type: integer, minimum: 0}
+                      errorMessage: {type: string}
+        "400": {$ref: "#/components/responses/Error"}
+        "413": {$ref: "#/components/responses/Error"}
+        "415": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /v1/history/records:
     post:
       summary: Append an immutable History record
