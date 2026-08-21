@@ -14,45 +14,37 @@ those semantics to support the Runtime journal.
 ## History layout
 
 ```text
-blobs/v1/sha256/<first-two-hex>/<remaining-hex>
-records/v1/by-id/<first-two-id-hash>/<id-hash>.json
-segments/v1/shards/<conversation-hash-prefix>/<segment-hash>.json
+history/v2/conversations/<conversation-hash>/segments/<segment-hash>.json
+history/v2/blobs/sha256/<first-two-hex>/<remaining-hex>
 projections/v1/conversations/deltas/<source-hash-prefix>/<source-hash>.json
 projections/v1/conversations/snapshots/<generation>-<time>-<hash>.json
 runtime/v1/runs/<run-hash-prefix>/<run-hash>/events/<20-digit-sequence>.json
 ```
 
-Payloads use RFC 8785 JSON Canonicalization Scheme (JCS). Record v1 stores one
-content-addressed payload and one record object. Record v2 is stored inside an
-immutable segment: small content is inline, while larger content remains an
-addressed blob. Record and segment IDs are hashed into object keys so raw IDs
+Payloads use RFC 8785 JSON Canonicalization Scheme (JCS). Every record is stored
+inside an immutable, single-conversation segment. Small content is inline;
+larger content uses a content-addressed blob. A normal one-record append creates
+a one-entry segment, so single and batch ingestion share one protocol. Raw IDs
 do not appear in bucket listings.
 
 The append commit order is:
-
-1. Validate and seal the prospective record.
-2. Commit the content-addressed payload.
-3. Commit the immutable record that references it.
-4. Update disposable projections when configured.
-
-A crash after step 2 can leave an orphan payload. Verification reports it. A successfully committed record never intentionally references an uncommitted payload.
-
-The segmented append commit order is:
 
 1. Normalize all content and seal every record and the complete segment.
 2. Commit any content that exceeds the inline threshold as immutable blobs.
 3. Commit the immutable segment containing all record envelopes and inline
    content.
+4. Commit the deterministic conversation-summary projection delta.
 
 The segment commit is the durable acknowledgment for the entire batch. A lost
 response can be retried with the same segment ID. Equivalent input returns the
 committed segment; different input is an idempotency conflict. A crash before
 step 3 may leave orphan blobs but cannot expose a partially committed segment.
 
-Segments contain one conversation and are distributed across 256 deterministic
-conversation shards. Conversation queries list only the relevant v2 shard;
-global queries and legacy v1 records still require broader scans. Sharded
-manifests and compacted range-readable packs remain future work.
+Segments contain one conversation and live under its full SHA-256 prefix.
+Timeline queries therefore issue one exact-prefix LIST and fetch only that
+conversation's segments with bounded concurrency. Global and trace-filtered
+queries still scan all segments. Compacted range-readable packs remain the
+scale path when one conversation accumulates many segment objects.
 
 ## Conversation projection
 

@@ -1,6 +1,7 @@
 # 0001: Object-storage-native history engine
 
-- Status: Proposed
+- Status: Proposed; authoritative conversation layout superseded by
+  [0005](0005-query-aligned-conversation-segments.md)
 - Scope: History ingestion, query, and replay
 
 ## Summary
@@ -67,6 +68,10 @@ should exploit the append-heavy workload and known query dimensions of agent
 history.
 
 ## Proposed design
+
+The implemented first-release layout keeps each immutable segment within one
+full-hash conversation prefix, as specified in design 0005. The manifest,
+range-pack, and compaction ideas below remain forward-looking scale work.
 
 ### Immutable write segments
 

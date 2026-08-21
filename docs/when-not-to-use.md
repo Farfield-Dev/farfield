@@ -7,7 +7,7 @@ Do not use the current pre-release as:
   automatic resumption are not implemented.
 - An internet-facing multi-tenant service. Authentication, authorization, quotas, and tenant isolation are not implemented.
 - A high-volume query backend. Queries currently scan immutable records and
-  relevant segment shards and do not yet use manifests or a rebuildable
+  exact conversation segment prefix and do not yet use manifests or a rebuildable
   projection.
 - A compliance control by itself. PII redaction, retention enforcement, legal hold, and audit administration are roadmap items.
 - A replacement for general infrastructure telemetry. Farfield is being designed around agent conversations and execution; use mature metrics, logs, and trace systems for ordinary services.

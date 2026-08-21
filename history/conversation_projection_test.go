@@ -163,11 +163,11 @@ func TestExplicitRebuildRecoversAuthoritativeHistoryAndColdStartAvoidsSourceGets
 		t.Fatalf("cold conversations = %#v, %v", conversations, err)
 	}
 	for key, count := range counting.gets {
-		if (strings.HasPrefix(key, "records/v1/") || strings.HasPrefix(key, "segments/v1/")) && count > 0 {
+		if strings.HasPrefix(key, historySegmentsPrefix+"/") && count > 0 {
 			t.Fatalf("cold projection read fetched authoritative source %s", key)
 		}
 	}
-	if counting.lists["records/v1"] != 0 || counting.lists["segments/v1/shards"] != 0 {
+	if counting.lists[historySegmentsPrefix] != 0 {
 		t.Fatalf("cold projection listed authoritative sources: %#v", counting.lists)
 	}
 	beforeGets, beforeLists := counting.operationCounts()

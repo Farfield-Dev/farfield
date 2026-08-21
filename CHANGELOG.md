@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to Farfield will be documented here. The project follows semantic versioning after `v1.0.0`; pre-1.0 releases may change APIs and persisted schemas only with explicit migration notes.
+All notable changes to Farfield will be documented here. The project follows
+semantic versioning after `v1.0.0`; pre-1.0 releases may make documented
+breaking protocol changes.
 
 ## Unreleased
 
@@ -19,6 +21,11 @@ All notable changes to Farfield will be documented here. The project follows sem
 
 ### Changed
 
+- History now stores every single and batch append as an immutable segment
+  under the full conversation hash. Timelines list only the selected
+  conversation and fetch segments and external blobs concurrently.
+- Removed the standalone record-plus-blob History format and its compatibility
+  reader before the first public release.
 - Conversation timelines reuse already-verified segment objects, avoiding one
   object-store read per inline record.
 - The embedded inspector summarizes and collapses large provider payloads.

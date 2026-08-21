@@ -1,18 +1,14 @@
 package history
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"sort"
 	"time"
 
-	"github.com/Farfield-Dev/farfield/internal/canonicaljson"
 	"github.com/Farfield-Dev/farfield/internal/identity"
 	"github.com/Farfield-Dev/farfield/storage"
 )
@@ -88,96 +84,33 @@ type AppendInput struct {
 }
 
 func (service *Service) Append(ctx context.Context, input AppendInput) (Record, error) {
-	content, err := canonicaljson.Normalize(input.Content)
-	if err != nil {
-		return Record{}, failure("FH_INVALID_JSON", "content is not valid JSON", err)
-	}
-	if len(content) > service.maxContentBytes {
-		return Record{}, failure("FH_CONTENT_TOO_LARGE", fmt.Sprintf("content is %d bytes; limit is %d", len(content), service.maxContentBytes), nil)
-	}
-	contentDigest := sha256.Sum256(content)
-	contentSHA := hex.EncodeToString(contentDigest[:])
-	contentKey := fmt.Sprintf("blobs/v1/sha256/%s/%s", contentSHA[:2], contentSHA[2:])
-
 	recordID := input.RecordID
+	var err error
 	if recordID == "" {
 		recordID, err = identity.New("rec_")
 		if err != nil {
 			return Record{}, failure("FH_ID_GENERATION_FAILED", "record id could not be generated", err)
 		}
 	}
-	now := service.now().UTC()
-	occurredAt := now
-	if input.OccurredAt != nil {
-		occurredAt = input.OccurredAt.UTC()
-	}
-	record, err := (Record{
-		SchemaVersion:  RecordSchema,
-		ID:             recordID,
-		ConversationID: input.ConversationID,
-		Kind:           input.Kind,
-		OccurredAt:     occurredAt,
-		RecordedAt:     now,
-		Sequence:       input.Sequence,
-		TraceID:        input.TraceID,
-		SpanID:         input.SpanID,
-		ParentID:       input.ParentID,
-		Agent:          input.Agent,
-		Tool:           input.Tool,
-		Status:         input.Status,
-		Tags:           cloneTags(input.Tags),
-		Content: ContentRef{
-			SHA256: contentSHA, Size: len(content), MediaType: "application/json", Key: contentKey,
-		},
-	}).Seal()
+	input.RecordID = recordID
+	digest := sha256.Sum256([]byte(recordID))
+	segmentID := "single_" + hex.EncodeToString(digest[:])
+	segment, err := service.AppendBatch(ctx, AppendBatchInput{SegmentID: segmentID, Records: []AppendInput{input}})
 	if err != nil {
+		var domainError *Error
+		if errors.As(err, &domainError) && domainError.Code == "FH_IDEMPOTENCY_CONFLICT" {
+			return Record{}, failure("FH_IDEMPOTENCY_CONFLICT", fmt.Sprintf("record id %q was reused for different content", recordID), err)
+		}
 		return Record{}, err
 	}
-	// Validate and seal before touching durable storage. The commit order must
-	// still be payload first and record second so an acknowledged record can
-	// never reference content that was not durably committed.
-	if _, err := service.store.PutIfAbsent(ctx, contentKey, content, storage.PutOptions{ContentType: "application/json"}); err != nil {
-		return Record{}, failure("FH_BLOB_WRITE_FAILED", "content could not be committed", err)
-	}
-	encoded, err := canonicaljson.Marshal(record)
-	if err != nil {
-		return Record{}, failure("FH_INVALID_RECORD", "record cannot be encoded", err)
-	}
-	key := recordKey(record.ID)
-	if _, err := service.store.PutIfAbsent(ctx, key, encoded, storage.PutOptions{ContentType: "application/json"}); err != nil {
-		if !errors.Is(err, storage.ErrConflict) {
-			return Record{}, failure("FH_RECORD_WRITE_FAILED", "record could not be committed", err)
-		}
-		existing, readErr := service.readAt(ctx, key)
-		if readErr != nil {
-			return Record{}, readErr
-		}
-		if !sameAppend(existing, record, input.OccurredAt != nil) {
-			return Record{}, failure("FH_IDEMPOTENCY_CONFLICT", fmt.Sprintf("record id %q was reused for different content", record.ID), err)
-		}
-		if err := service.projectSource(ctx, key, existing.RecordSHA256, []Record{existing}); err != nil {
-			return Record{}, err
-		}
-		return existing, nil
-	}
-	if err := service.projectSource(ctx, key, record.RecordSHA256, []Record{record}); err != nil {
-		return Record{}, err
-	}
-	return record, nil
+	return segment.Entries[0].Record, nil
 }
 
 func (service *Service) ReadRecord(ctx context.Context, recordID string) (Record, error) {
 	if !validID.MatchString(recordID) {
 		return Record{}, failure("FH_INVALID_RECORD", "record id is invalid", nil)
 	}
-	record, err := service.readAt(ctx, recordKey(recordID))
-	if err == nil {
-		return record, nil
-	}
-	if !errors.Is(err, storage.ErrNotFound) {
-		return Record{}, err
-	}
-	segments, err := service.listSegments(ctx, "segments/v1/shards")
+	segments, err := service.listSegments(ctx, historySegmentsPrefix)
 	if err != nil {
 		return Record{}, err
 	}
@@ -200,33 +133,6 @@ func (service *Service) ReadRecord(ctx context.Context, recordID string) (Record
 	return *found, nil
 }
 
-func (service *Service) readAt(ctx context.Context, key string) (Record, error) {
-	data, err := service.store.Get(ctx, key)
-	if errors.Is(err, storage.ErrNotFound) {
-		return Record{}, failure("FH_NOT_FOUND", "record was not found", err)
-	}
-	if err != nil {
-		return Record{}, failure("FH_RECORD_READ_FAILED", "record could not be read", err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var record Record
-	if err := decoder.Decode(&record); err != nil {
-		return Record{}, failure("FH_RECORD_CORRUPT", "record is not valid JSON", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); err != io.EOF {
-		return Record{}, failure("FH_RECORD_CORRUPT", "record contains trailing JSON data", err)
-	}
-	if err := record.Verify(); err != nil {
-		return Record{}, err
-	}
-	if key != recordKey(record.ID) {
-		return Record{}, failure("FH_RECORD_CORRUPT", "record is stored under the wrong object key", nil)
-	}
-	return record, nil
-}
-
 func (service *Service) ReadContent(ctx context.Context, record Record) ([]byte, error) {
 	return service.readContent(ctx, record, nil)
 }
@@ -235,16 +141,16 @@ func (service *Service) readContent(ctx context.Context, record Record, segments
 	if err := record.Verify(); err != nil {
 		return nil, err
 	}
-	if record.SchemaVersion == RecordSchemaV2 && record.Content.Storage == "segment" {
+	if record.Content.Storage == "segment" {
 		segment, found := segments[record.Content.Key]
 		if !found {
+			if segments != nil {
+				return nil, failure("FH_SEGMENT_CORRUPT", "record references a segment outside the loaded conversation", nil)
+			}
 			var err error
 			segment, err = service.readSegmentAt(ctx, record.Content.Key)
 			if err != nil {
 				return nil, err
-			}
-			if segments != nil {
-				segments[record.Content.Key] = segment
 			}
 		}
 		if record.Content.EntryIndex == nil || *record.Content.EntryIndex >= len(segment.Entries) {
@@ -274,7 +180,7 @@ func (service *Service) readContent(ctx context.Context, record Record, segments
 }
 
 func (service *Service) ListRecords(ctx context.Context) ([]Record, error) {
-	return service.listRecords(ctx, "segments/v1/shards")
+	return service.listRecords(ctx, historySegmentsPrefix)
 }
 
 func (service *Service) listRecords(ctx context.Context, segmentPrefix string) ([]Record, error) {
@@ -283,23 +189,12 @@ func (service *Service) listRecords(ctx context.Context, segmentPrefix string) (
 }
 
 func (service *Service) listRecordsWithSegments(ctx context.Context, segmentPrefix string) ([]Record, map[string]Segment, error) {
-	keys, err := service.store.List(ctx, "records/v1")
-	if err != nil {
-		return nil, nil, failure("FH_RECORD_LIST_FAILED", "records could not be listed", err)
-	}
-	records := make([]Record, 0, len(keys))
-	for _, key := range keys {
-		record, err := service.readAt(ctx, key)
-		if err != nil {
-			return nil, nil, err
-		}
-		records = append(records, record)
-	}
 	segments, err := service.listSegments(ctx, segmentPrefix)
 	if err != nil {
 		return nil, nil, err
 	}
 	segmentsByKey := make(map[string]Segment, len(segments))
+	records := make([]Record, 0)
 	for _, segment := range segments {
 		segmentsByKey[segmentKey(segment.ID, segment.ConversationID)] = segment
 		for _, entry := range segment.Entries {
@@ -341,38 +236,17 @@ type Verification struct {
 }
 
 func (service *Service) Verify(ctx context.Context) (Verification, error) {
-	recordKeys, err := service.store.List(ctx, "records/v1")
-	if err != nil {
-		return Verification{}, failure("FH_VERIFY_FAILED", "records could not be listed", err)
-	}
-	blobKeys, err := service.store.List(ctx, "blobs/v1")
+	blobKeys, err := service.store.List(ctx, historyBlobPrefix)
 	if err != nil {
 		return Verification{}, failure("FH_VERIFY_FAILED", "blobs could not be listed", err)
 	}
-	segmentKeys, err := service.store.List(ctx, "segments/v1/shards")
+	segmentKeys, err := service.store.List(ctx, historySegmentsPrefix)
 	if err != nil {
 		return Verification{}, failure("FH_VERIFY_FAILED", "segments could not be listed", err)
 	}
 	referenced := make(map[string]struct{})
 	seenRecords := make(map[string]string)
 	result := Verification{Store: service.store.Description(), Segments: len(segmentKeys), Blobs: len(blobKeys), Issues: []VerificationIssue{}, OrphanBlobs: []string{}}
-	for _, key := range recordKeys {
-		record, readErr := service.readAt(ctx, key)
-		if readErr != nil {
-			result.Issues = append(result.Issues, VerificationIssue{Key: key, Error: readErr.Error()})
-			continue
-		}
-		result.Records++
-		if previous, exists := seenRecords[record.ID]; exists {
-			result.Issues = append(result.Issues, VerificationIssue{Key: key, Error: fmt.Sprintf("record id %q also appears in %s", record.ID, previous)})
-		} else {
-			seenRecords[record.ID] = key
-		}
-		referenced[record.Content.Key] = struct{}{}
-		if _, readErr := service.ReadContent(ctx, record); readErr != nil {
-			result.Issues = append(result.Issues, VerificationIssue{Key: record.Content.Key, Error: readErr.Error()})
-		}
-	}
 	for _, key := range segmentKeys {
 		segment, readErr := service.readSegmentAt(ctx, key)
 		if readErr != nil {
@@ -401,24 +275,4 @@ func (service *Service) Verify(ctx context.Context) (Verification, error) {
 	}
 	result.OK = len(result.Issues) == 0
 	return result, nil
-}
-
-func recordKey(recordID string) string {
-	digest := sha256.Sum256([]byte(recordID))
-	value := hex.EncodeToString(digest[:])
-	return fmt.Sprintf("records/v1/by-id/%s/%s.json", value[:2], value)
-}
-
-func sameAppend(existing, candidate Record, occurredAtWasProvided bool) bool {
-	existing.RecordedAt = time.Time{}
-	existing.RecordSHA256 = ""
-	candidate.RecordedAt = time.Time{}
-	candidate.RecordSHA256 = ""
-	if !occurredAtWasProvided {
-		existing.OccurredAt = time.Time{}
-		candidate.OccurredAt = time.Time{}
-	}
-	left, leftErr := canonicaljson.Marshal(existing)
-	right, rightErr := canonicaljson.Marshal(candidate)
-	return leftErr == nil && rightErr == nil && string(left) == string(right)
 }

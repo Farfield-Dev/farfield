@@ -54,8 +54,12 @@ func TestAppendReadAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !verification.OK || verification.Records != 1 || verification.Blobs != 1 {
+	if !verification.OK || verification.Records != 1 || verification.Segments != 1 || verification.Blobs != 0 {
 		t.Fatalf("verification = %#v", verification)
+	}
+	segmentKeys, err := store.List(context.Background(), conversationSegmentPrefix("conv_test"))
+	if err != nil || len(segmentKeys) != 1 {
+		t.Fatalf("conversation segment keys = %#v, %v", segmentKeys, err)
 	}
 }
 
@@ -88,7 +92,7 @@ func TestVerifyDetectsCorruptBlob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(store)
+	service, err := New(store, WithMaxInlineContentBytes(8))
 	if err != nil {
 		t.Fatal(err)
 	}

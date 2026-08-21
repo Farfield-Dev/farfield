@@ -65,13 +65,13 @@ type SegmentEntry struct {
 }
 
 type Segment struct {
-	SchemaVersion  string         `json:"schema_version"`
-	ID             string         `json:"id"`
-	ConversationID string         `json:"conversation_id"`
-	Shard          string         `json:"shard"`
-	CreatedAt      time.Time      `json:"created_at"`
-	Entries        []SegmentEntry `json:"entries"`
-	SegmentSHA256  string         `json:"segment_sha256"`
+	SchemaVersion    string         `json:"schema_version"`
+	ID               string         `json:"id"`
+	ConversationID   string         `json:"conversation_id"`
+	ConversationHash string         `json:"conversation_hash"`
+	CreatedAt        time.Time      `json:"created_at"`
+	Entries          []SegmentEntry `json:"entries"`
+	SegmentSHA256    string         `json:"segment_sha256"`
 }
 
 type Entry struct {

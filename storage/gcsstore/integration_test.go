@@ -23,7 +23,7 @@ func TestGCSIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := "records/v1/record.json"
+	key := "conformance/objects/record.json"
 	data := []byte(`{"ok":true}`)
 	created, err := store.PutIfAbsent(ctx, key, data, farfieldstorage.PutOptions{ContentType: "application/json"})
 	if err != nil || !created {
@@ -40,15 +40,15 @@ func TestGCSIntegration(t *testing.T) {
 	if err != nil || string(stored) != string(data) {
 		t.Fatalf("Get = %s, %v", stored, err)
 	}
-	keys, err := store.List(ctx, "records/v1")
+	keys, err := store.List(ctx, "conformance/objects")
 	if err != nil || len(keys) != 1 || keys[0] != key {
 		t.Fatalf("List = %#v, %v", keys, err)
 	}
-	if _, err := store.Get(ctx, "records/v1/missing.json"); !errors.Is(err, farfieldstorage.ErrNotFound) {
+	if _, err := store.Get(ctx, "conformance/objects/missing.json"); !errors.Is(err, farfieldstorage.ErrNotFound) {
 		t.Fatalf("missing Get error = %v", err)
 	}
 
-	concurrentKey := "records/v1/concurrent.json"
+	concurrentKey := "conformance/objects/concurrent.json"
 	var createdCount atomic.Int32
 	var wait sync.WaitGroup
 	errorsFound := make(chan error, 8)

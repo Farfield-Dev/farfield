@@ -1,6 +1,8 @@
 # Contributing
 
-Farfield is pre-1.0, but persisted bytes are already treated carefully. A change to an object key, checksum input, schema version, or idempotency rule must include compatibility fixtures and migration notes.
+Farfield is pre-1.0, but persisted bytes are already treated carefully. A
+change to an object key, checksum input, schema version, or idempotency rule
+must include golden fixtures and an explicit compatibility decision.
 
 ## Development
 

@@ -16,8 +16,8 @@ func TestNewAndDescription(t *testing.T) {
 	if store.Description() != "gs://bucket/tenant/agent" {
 		t.Fatalf("description = %q", store.Description())
 	}
-	key, err := store.objectKey("records/v1/a.json")
-	if err != nil || key != "tenant/agent/records/v1/a.json" {
+	key, err := store.objectKey("conformance/objects/a.json")
+	if err != nil || key != "tenant/agent/conformance/objects/a.json" {
 		t.Fatalf("object key = %q, %v", key, err)
 	}
 }

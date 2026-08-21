@@ -21,3 +21,4 @@ unimplemented capability available.
 | [0002: Agent workload and object-storage fit](0002-agent-workload-storage-fit.md) | Proposed |
 | [0003: Native SDK experience](0003-native-sdk-experience.md) | Accepted |
 | [0004: Object-storage-native conversation projection](0004-object-storage-conversation-projection.md) | Implemented |
+| [0005: Query-aligned conversation segments](0005-query-aligned-conversation-segments.md) | Implemented |

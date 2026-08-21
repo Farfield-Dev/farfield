@@ -57,24 +57,22 @@ func TestAppendBatchCommitsOneSegment(t *testing.T) {
 	if segment.SegmentSHA256 == "" || len(segment.Entries) != 2 {
 		t.Fatalf("segment = %#v", segment)
 	}
-	if segment.Entries[0].Record.SchemaVersion != RecordSchemaV2 || segment.Entries[0].Record.Content.Storage != "segment" {
+	if segment.Entries[0].Record.SchemaVersion != RecordSchema || segment.Entries[0].Record.Content.Storage != "segment" {
 		t.Fatalf("record content reference = %#v", segment.Entries[0].Record.Content)
 	}
-	keys, err := store.List(context.Background(), "segments/v1")
+	keys, err := store.List(context.Background(), historySegmentsPrefix)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(keys) != 1 || keys[0] != segmentKey("seg_test", "conv_test") {
 		t.Fatalf("segment keys = %#v", keys)
 	}
-	for _, prefix := range []string{"records/v1", "blobs/v1"} {
-		keys, err := store.List(context.Background(), prefix)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(keys) != 0 {
-			t.Fatalf("%s keys = %#v", prefix, keys)
-		}
+	blobKeys, err := store.List(context.Background(), historyBlobPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blobKeys) != 0 {
+		t.Fatalf("blob keys = %#v", blobKeys)
 	}
 	record, err := service.ReadRecord(context.Background(), "rec_two")
 	if err != nil {
@@ -237,7 +235,7 @@ func TestConcurrentAppendBatchIsIdempotent(t *testing.T) {
 			t.Fatalf("writers returned different segments: %s and %s", committed, segment.SegmentSHA256)
 		}
 	}
-	keys, err := store.List(context.Background(), "segments/v1")
+	keys, err := store.List(context.Background(), historySegmentsPrefix)
 	if err != nil || len(keys) != 1 {
 		t.Fatalf("segment keys = %#v, %v", keys, err)
 	}
@@ -268,7 +266,7 @@ func TestAppendBatchRejectsSegmentIDReuse(t *testing.T) {
 	}
 }
 
-func TestMixedRecordAndSegmentHistory(t *testing.T) {
+func TestSingleAndBatchSegmentsShareOneTimeline(t *testing.T) {
 	t.Parallel()
 	store, err := storage.OpenLocal(t.TempDir())
 	if err != nil {
@@ -279,7 +277,7 @@ func TestMixedRecordAndSegmentHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := service.Append(context.Background(), AppendInput{
-		RecordID: "rec_legacy", ConversationID: "conv_test", Kind: "message.input", Content: []byte(`{"n":1}`),
+		RecordID: "rec_single", ConversationID: "conv_test", Kind: "message.input", Content: []byte(`{"n":1}`),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +298,7 @@ func TestMixedRecordAndSegmentHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !verification.OK || verification.Records != 2 || verification.Segments != 1 || verification.Blobs != 1 {
+	if !verification.OK || verification.Records != 2 || verification.Segments != 2 || verification.Blobs != 0 {
 		t.Fatalf("verification = %#v", verification)
 	}
 }
@@ -346,7 +344,7 @@ func TestAppendBatchRejectsDuplicateRecordIDs(t *testing.T) {
 	if !errors.As(err, &domainError) || domainError.Code != "FH_INVALID_SEGMENT" {
 		t.Fatalf("duplicate record error = %v", err)
 	}
-	keys, listErr := store.List(context.Background(), "segments/v1")
+	keys, listErr := store.List(context.Background(), historySegmentsPrefix)
 	if listErr != nil || len(keys) != 0 {
 		t.Fatalf("invalid segment was written: %#v, %v", keys, listErr)
 	}

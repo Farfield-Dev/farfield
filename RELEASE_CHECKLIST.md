@@ -5,7 +5,7 @@
 - [ ] `make check` passes from a clean checkout.
 - [ ] The History and Runtime CLI lifecycle, verification, server, and inspector flow works.
 - [ ] S3 conformance passes against MinIO in CI.
-- [ ] Golden protocol fixtures pass and any persisted-byte change has migration notes.
+- [ ] Golden protocol fixtures pass and persisted-byte changes have an explicit compatibility decision.
 - [ ] `govulncheck ./...` reports no reachable known vulnerabilities.
 - [ ] Linux, macOS, and Windows release binaries build with `CGO_ENABLED=0`.
 

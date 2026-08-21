@@ -13,13 +13,13 @@ The project is building an open substrate for long-running agents: durable execu
 
 ## What works now
 
-- Append canonical JSON events to an immutable local object store.
+- Append canonical JSON events to query-aligned, conversation-local segments.
 - Commit many events in one checksummed, idempotent history segment.
 - Keep small event content inline and move larger content to addressed blobs.
-- Store payloads once by SHA-256 and reference them from sealed records.
+- Store large payloads once by SHA-256 and reference them from sealed records.
 - Retry appends safely with stable record IDs.
 - Detect record, payload, and immutable-write corruption.
-- Read a record and its payload without a database index.
+- Read and hydrate sealed records without another database.
 - Verify the authoritative store and identify orphaned blobs.
 - Use the same storage interface for local files, native Google Cloud Storage,
   and S3-compatible storage.
@@ -205,17 +205,20 @@ The Go core owns storage semantics, ingestion, querying, runtime coordination, r
 
 See [docs/architecture.md](docs/architecture.md) for package boundaries,
 [docs/design](docs/design/README.md) for substantial design proposals, and
-[ROADMAP.md](ROADMAP.md) for the path from this bootstrap to durable agent
+[ROADMAP.md](ROADMAP.md) for the path from this first release to durable agent
 execution.
 
 ## Current boundaries
 
-This first release is useful for local evaluation, SDK development, and proving the storage protocol. It is not yet a production observability backend:
+This first release is useful for durable agent capture, replay, inspection, and
+run journaling against storage you control. It is not yet a production
+multi-tenant observability backend or worker scheduler:
 
 - Conversation lists use a rebuildable object-backed projection with immutable
-  deltas and checksummed snapshots. Filtered record queries and timelines still
-  scan authoritative records in the relevant shards; manifests and compacted
-  range-readable packs are next.
+  deltas and checksummed snapshots. Timelines list only the selected
+  conversation's exact prefix and fetch its segments concurrently. Global and
+  trace-filtered queries still scan all conversation segments; rebuildable
+  locator projections and compacted range-readable packs are the scale path.
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
 - S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible
   providers are rejected. Native GCS writes use `ifGenerationMatch=0`.

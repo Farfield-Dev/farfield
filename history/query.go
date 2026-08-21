@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -20,9 +21,9 @@ type Query struct {
 }
 
 func (service *Service) Query(ctx context.Context, query Query) ([]Record, error) {
-	segmentPrefix := "segments/v1/shards"
+	segmentPrefix := historySegmentsPrefix
 	if query.ConversationID != "" {
-		segmentPrefix += "/" + segmentShard(query.ConversationID)
+		segmentPrefix = conversationSegmentPrefix(query.ConversationID)
 	}
 	records, err := service.listRecords(ctx, segmentPrefix)
 	if err != nil {
@@ -55,20 +56,44 @@ type Entry struct {
 }
 
 func (service *Service) Timeline(ctx context.Context, conversationID string) ([]Entry, error) {
-	records, segments, err := service.listRecordsWithSegments(ctx, "segments/v1/shards/"+segmentShard(conversationID))
+	records, segments, err := service.listRecordsWithSegments(ctx, conversationSegmentPrefix(conversationID))
 	if err != nil {
 		return nil, err
 	}
-	entries := make([]Entry, 0, len(records))
-	for _, record := range records {
-		if record.ConversationID != conversationID {
-			continue
-		}
-		content, err := service.readContent(ctx, record, segments)
-		if err != nil {
-			return nil, err
-		}
-		entries = append(entries, Entry{Record: record, Content: json.RawMessage(content)})
+	entries := make([]Entry, len(records))
+	jobs := make(chan int)
+	workers := min(segmentReadConcurrency, len(records))
+	var wait sync.WaitGroup
+	var firstError error
+	var errorOnce sync.Once
+	for range workers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				record := records[index]
+				if record.ConversationID != conversationID {
+					errorOnce.Do(func() {
+						firstError = failure("FH_SEGMENT_CORRUPT", "conversation prefix contains a record for another conversation", nil)
+					})
+					continue
+				}
+				content, readErr := service.readContent(ctx, record, segments)
+				if readErr != nil {
+					errorOnce.Do(func() { firstError = readErr })
+					continue
+				}
+				entries[index] = Entry{Record: record, Content: json.RawMessage(content)}
+			}
+		}()
+	}
+	for index := range records {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
+	if firstError != nil {
+		return nil, firstError
 	}
 	if len(entries) == 0 {
 		return nil, failure("FH_NOT_FOUND", "conversation was not found", nil)

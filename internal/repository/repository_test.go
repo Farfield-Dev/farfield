@@ -14,10 +14,8 @@ import (
 func TestPublicJSONFilesAreValid(t *testing.T) {
 	root := filepath.Join("..", "..")
 	for _, path := range []string{
-		"protocol/history/v1/schema.json",
-		"protocol/history/v1/fixtures/content.json",
-		"protocol/history/v1/fixtures/record.json",
 		"protocol/history/v2/schema.json",
+		"protocol/history/v2/fixtures/segment.json",
 		"protocol/runtime/v1/schema.json",
 	} {
 		data, err := os.ReadFile(filepath.Join(root, path))

@@ -2,6 +2,8 @@ package history
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +13,39 @@ import (
 type countingStore struct {
 	storage.Store
 	gets map[string]int
+}
+
+type timelineObservingStore struct {
+	storage.Store
+	mu        sync.Mutex
+	active    int
+	maxActive int
+	lists     []string
+}
+
+func (store *timelineObservingStore) Get(ctx context.Context, key string) ([]byte, error) {
+	if !strings.HasPrefix(key, historySegmentsPrefix+"/") {
+		return store.Store.Get(ctx, key)
+	}
+	store.mu.Lock()
+	store.active++
+	if store.active > store.maxActive {
+		store.maxActive = store.active
+	}
+	store.mu.Unlock()
+	time.Sleep(20 * time.Millisecond)
+	data, err := store.Store.Get(ctx, key)
+	store.mu.Lock()
+	store.active--
+	store.mu.Unlock()
+	return data, err
+}
+
+func (store *timelineObservingStore) List(ctx context.Context, prefix string) ([]string, error) {
+	store.mu.Lock()
+	store.lists = append(store.lists, prefix)
+	store.mu.Unlock()
+	return store.Store.List(ctx, prefix)
 }
 
 func (store *countingStore) Get(ctx context.Context, key string) ([]byte, error) {
@@ -84,5 +119,50 @@ func TestTimelineReadsEachSegmentOnce(t *testing.T) {
 	}
 	if store.gets[key] != 1 {
 		t.Fatalf("segment GETs = %d, want 1", store.gets[key])
+	}
+}
+
+func TestTimelineListsOnlyTheConversationAndReadsSegmentsConcurrently(t *testing.T) {
+	t.Parallel()
+	local, err := storage.OpenLocal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := New(local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range 8 {
+		_, err := writer.AppendBatch(context.Background(), AppendBatchInput{
+			SegmentID: "seg_parallel_" + string(rune('a'+index)),
+			Records: []AppendInput{{
+				RecordID: "rec_parallel_" + string(rune('a'+index)), ConversationID: "conv_parallel",
+				Kind: "message", Content: []byte(`{"ok":true}`),
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := writer.Append(context.Background(), AppendInput{
+		RecordID: "rec_unrelated", ConversationID: "conv_unrelated", Kind: "message", Content: []byte(`{"ok":true}`),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	observed := &timelineObservingStore{Store: local}
+	reader, err := New(observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeline, err := reader.Timeline(context.Background(), "conv_parallel")
+	if err != nil || len(timeline) != 8 {
+		t.Fatalf("timeline = %#v, %v", timeline, err)
+	}
+	if observed.maxActive < 2 {
+		t.Fatalf("segment reads were serial; max concurrency = %d", observed.maxActive)
+	}
+	wantPrefix := conversationSegmentPrefix("conv_parallel")
+	if len(observed.lists) != 1 || observed.lists[0] != wantPrefix {
+		t.Fatalf("timeline LIST prefixes = %#v, want only %q", observed.lists, wantPrefix)
 	}
 }

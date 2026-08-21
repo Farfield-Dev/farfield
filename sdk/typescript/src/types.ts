@@ -72,7 +72,7 @@ export interface Segment {
   schema_version: string;
   id: string;
   conversation_id: string;
-  shard: string;
+  conversation_hash: string;
   created_at: string;
   entries: Entry[];
   segment_sha256: string;

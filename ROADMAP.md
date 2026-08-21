@@ -9,6 +9,7 @@ Farfield's destination is an open durable execution and observability platform f
 - [x] Local filesystem, native GCS, and S3-compatible storage implementations
 - [x] Verification and deterministic conformance fixtures
 - [x] Immutable segmented history log with inline content and external blobs
+- [x] Exact conversation-local object layout with concurrent timeline reads
 - [ ] Sharded manifests and compacted range-readable packs ([design](docs/design/0001-object-storage-native-history.md))
 - [x] Rebuildable object-backed conversation projection with immutable deltas,
   checksummed snapshots, retry repair, and warm in-memory reads

@@ -222,17 +222,12 @@ func (service *Service) RebuildConversationProjection(ctx context.Context) (Proj
 }
 
 func (projection *conversationProjection) rebuild(ctx context.Context, service *Service) error {
-	records, segments, err := service.listRecordsWithSegments(ctx, "segments/v1/shards")
+	records, segments, err := service.listRecordsWithSegments(ctx, historySegmentsPrefix)
 	if err != nil {
 		return err
 	}
 	projection.values = aggregatesFromConversations(aggregateConversations(records, -1))
 	projection.applied = make(map[string]struct{})
-	for _, record := range records {
-		if record.SchemaVersion == RecordSchema {
-			projection.applied[conversationDeltaKey(recordKey(record.ID))] = struct{}{}
-		}
-	}
 	for key := range segments {
 		projection.applied[conversationDeltaKey(key)] = struct{}{}
 	}

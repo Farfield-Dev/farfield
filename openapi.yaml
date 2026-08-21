@@ -238,12 +238,12 @@ components:
       additionalProperties: false
     Segment:
       type: object
-      required: [schema_version, id, conversation_id, shard, created_at, entries, segment_sha256]
+      required: [schema_version, id, conversation_id, conversation_hash, created_at, entries, segment_sha256]
       properties:
         schema_version: {const: farfield.history.segment.v1}
         id: {type: string}
         conversation_id: {type: string}
-        shard: {type: string, pattern: "^[0-9a-f]{2}$"}
+        conversation_hash: {type: string, pattern: "^[0-9a-f]{64}$"}
         created_at: {type: string, format: date-time}
         entries:
           type: array
@@ -253,8 +253,7 @@ components:
       type: object
       required: [schema_version, id, conversation_id, kind, occurred_at, recorded_at, tags, content, record_sha256]
       properties:
-        schema_version:
-          enum: [farfield.history.record.v1, farfield.history.record.v2]
+        schema_version: {const: farfield.history.record.v2}
         id: {type: string}
         conversation_id: {type: string}
         kind: {type: string}
