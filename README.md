@@ -15,7 +15,7 @@ and analytics are projections that can be rebuilt.
 > Authentication, tenant isolation, and shared distributed indexes are not yet
 > production-ready.
 
-![Farfield inspector showing agent activity analytics, session history, timeline filters, and immutable event evidence.](docs/assets/farfield-inspector.jpg)
+![Farfield inspector showing agent activity analytics, session history, and a Review-first conversation with expandable trace activity.](docs/assets/farfield-inspector.jpg)
 
 ## What works now
 
@@ -38,7 +38,9 @@ and analytics are projections that can be rebuilt.
 - Ingest and query over a versioned HTTP API.
 - Ingest OTLP/HTTP protobuf or JSON traces, including gzip and standard partial
   success, with idempotent durable acknowledgments.
-- Browse captured conversations in the embedded local inspector.
+- Browse captured conversations in the embedded local inspector with a
+  Review-first conversation view, expandable activity, reasoning-aware usage,
+  failure states, and a filterable forensic trace.
 - Capture and inspect History through native Python, TypeScript, and Go SDKs.
 - Batch high-volume capture through bounded, observable background processors
   with explicit flush and shutdown boundaries.
@@ -61,7 +63,11 @@ go run ./examples/go-agent
 go run ./cmd/farfield serve
 ```
 
-Open [http://127.0.0.1:8787](http://127.0.0.1:8787) to inspect the captured conversation and its hydrated event timeline.
+Open [http://127.0.0.1:8787](http://127.0.0.1:8787) to inspect the captured
+conversation. Review provides the high-level conversation; Trace exposes exact
+operations, immutable records, filters, failures, and evidence. See the
+[inspector guide](docs/inspector.md) for the complete workflow or add `?demo=1`
+to explore the deterministic demo dataset.
 
 ## Use the native SDKs
 
@@ -226,7 +232,8 @@ The Go core owns storage semantics, ingestion, querying, verification, and the
 CLI/server. SDKs stay native to the language where an agent executes. The
 persisted protocol—not a Go API—is the platform boundary.
 
-See [docs/architecture.md](docs/architecture.md) for package boundaries,
+See the [inspector guide](docs/inspector.md) for the local debugging workflow,
+[docs/architecture.md](docs/architecture.md) for package boundaries,
 [docs/design](docs/design/README.md) for substantial design proposals, and
 [ROADMAP.md](ROADMAP.md) for the path from this first release to an
 object-storage-native agent observability platform.

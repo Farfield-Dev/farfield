@@ -89,6 +89,8 @@ button { cursor: pointer; }
 .markdown-body pre { overflow: auto; border: 1px solid var(--color-stroke); border-radius: 4px; background: #0c0d0f; padding: 12px; }
 .markdown-body pre code { border: 0; background: transparent; padding: 0; }
 .markdown-body blockquote { margin-left: 0; border-left: 2px solid var(--color-accent); padding-left: 1rem; color: var(--color-ink-muted); }
+.markdown-body-user { color: var(--color-ink); font-size: 13px; line-height: 1.58; }
+.markdown-body-agent { line-height: 1.68; }
 
 @keyframes pulse-soft { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
 .animate-pulse-soft { animation: pulse-soft 1.6s ease-in-out infinite; }

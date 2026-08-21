@@ -13,6 +13,24 @@ The example writes four immutable events into `.farfield/objects`. The server re
 
 No database or account is required.
 
+## Explore the inspector
+
+The inspector opens in Review, which separates user prompts from agent
+responses and collapses intervening model, reasoning, tool, and lifecycle
+records into expandable activity. Switch to Trace for the run map, structured
+filters, error and reasoning focus, exact records, JSON payloads, and integrity
+metadata.
+
+To evaluate the UI without capturing your own data, open:
+
+```text
+http://127.0.0.1:8787/?demo=1
+```
+
+The deterministic demo includes both a recovered tool failure and a terminally
+failed session. See the [inspector guide](inspector.md) for view semantics and
+filter examples.
+
 ## Capture an event
 
 ```bash
