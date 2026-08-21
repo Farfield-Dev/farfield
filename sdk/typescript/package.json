@@ -1,7 +1,7 @@
 {
   "name": "@farfield/sdk",
   "version": "0.1.0-alpha.1",
-  "description": "Durable agent history and execution, stored in object storage you control",
+  "description": "Durable agent history and traces in object storage you control",
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -38,7 +38,7 @@
   "keywords": [
     "agents",
     "observability",
-    "durable-execution",
+    "tracing",
     "s3"
   ],
   "license": "Apache-2.0",

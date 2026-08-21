@@ -1,4 +1,4 @@
-// Package server exposes Farfield History and Runtime over a small versioned HTTP API.
+// Package server exposes Farfield History over a small versioned HTTP API.
 package server
 
 import (
@@ -14,25 +14,17 @@ import (
 
 	"github.com/Farfield-Dev/farfield/history"
 	"github.com/Farfield-Dev/farfield/ingest/otlp"
-	farfieldruntime "github.com/Farfield-Dev/farfield/runtime"
 )
 
 const maxRequestBytes = history.DefaultMaxSegmentBytes + 1024*1024
 
 type Server struct {
 	history *history.Service
-	runtime *farfieldruntime.Journal
 	otlp    *otlp.Ingestor
 	mux     *http.ServeMux
 }
 
-type Option func(*Server)
-
-func WithRuntime(journal *farfieldruntime.Journal) Option {
-	return func(server *Server) { server.runtime = journal }
-}
-
-func New(service *history.Service, options ...Option) (*Server, error) {
+func New(service *history.Service) (*Server, error) {
 	if service == nil {
 		return nil, fmt.Errorf("history service is required")
 	}
@@ -41,9 +33,6 @@ func New(service *history.Service, options ...Option) (*Server, error) {
 		return nil, err
 	}
 	server := &Server{history: service, otlp: otlpIngestor, mux: http.NewServeMux()}
-	for _, option := range options {
-		option(server)
-	}
 	server.routes()
 	return server, nil
 }
@@ -62,13 +51,6 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("GET /v1/history/search", server.searchHistory)
 	server.mux.HandleFunc("GET /v1/history/conversations", server.conversations)
 	server.mux.HandleFunc("GET /v1/history/conversations/{conversationID}/timeline", server.timeline)
-	if server.runtime != nil {
-		server.mux.HandleFunc("POST /v1/runtime/runs", server.createRun)
-		server.mux.HandleFunc("GET /v1/runtime/runs/{runID}", server.getRun)
-		server.mux.HandleFunc("GET /v1/runtime/runs/{runID}/events", server.runEvents)
-		server.mux.HandleFunc("POST /v1/runtime/runs/{runID}/transitions", server.transitionRun)
-		server.mux.HandleFunc("POST /v1/runtime/runs/{runID}/checkpoints", server.saveCheckpoint)
-	}
 }
 
 func ListenAndServe(ctx context.Context, address string, handler http.Handler) error {
@@ -304,91 +286,6 @@ func (server *Server) timeline(writer http.ResponseWriter, request *http.Request
 	writeJSON(writer, http.StatusOK, entries)
 }
 
-type createRunRequest struct {
-	ID          string          `json:"id"`
-	OperationID string          `json:"operation_id"`
-	Checkpoint  json.RawMessage `json:"checkpoint"`
-}
-
-type transitionRunRequest struct {
-	OperationID string                 `json:"operation_id"`
-	To          farfieldruntime.Status `json:"to"`
-	Checkpoint  json.RawMessage        `json:"checkpoint"`
-}
-
-type checkpointRequest struct {
-	OperationID string          `json:"operation_id"`
-	Checkpoint  json.RawMessage `json:"checkpoint"`
-}
-
-func (server *Server) createRun(writer http.ResponseWriter, request *http.Request) {
-	var value createRunRequest
-	if !decodeRequest(writer, request, &value) {
-		return
-	}
-	event, err := server.runtime.Create(request.Context(), farfieldruntime.CreateInput{
-		RunID: value.ID, OperationID: value.OperationID, Checkpoint: value.Checkpoint,
-	})
-	if err != nil {
-		writeDomainError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusCreated, event)
-}
-
-func (server *Server) getRun(writer http.ResponseWriter, request *http.Request) {
-	run, err := server.runtime.Get(request.Context(), request.PathValue("runID"))
-	if err != nil {
-		writeDomainError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, run)
-}
-
-func (server *Server) runEvents(writer http.ResponseWriter, request *http.Request) {
-	events, err := server.runtime.Events(request.Context(), request.PathValue("runID"))
-	if err != nil {
-		writeDomainError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, events)
-}
-
-func (server *Server) transitionRun(writer http.ResponseWriter, request *http.Request) {
-	var value transitionRunRequest
-	if !decodeRequest(writer, request, &value) {
-		return
-	}
-	event, err := server.runtime.Transition(request.Context(), farfieldruntime.TransitionInput{
-		RunID: request.PathValue("runID"), OperationID: value.OperationID,
-		To: value.To, Checkpoint: value.Checkpoint,
-	})
-	if err != nil {
-		writeDomainError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusCreated, event)
-}
-
-func (server *Server) saveCheckpoint(writer http.ResponseWriter, request *http.Request) {
-	var value checkpointRequest
-	if !decodeRequest(writer, request, &value) {
-		return
-	}
-	if value.Checkpoint == nil {
-		writeError(writer, http.StatusBadRequest, "FR_INVALID_REQUEST", "checkpoint is required; use null only when it is meaningful state", nil)
-		return
-	}
-	event, err := server.runtime.SaveCheckpoint(request.Context(), farfieldruntime.CheckpointInput{
-		RunID: request.PathValue("runID"), OperationID: value.OperationID, Checkpoint: value.Checkpoint,
-	})
-	if err != nil {
-		writeDomainError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusCreated, event)
-}
-
 func decodeRequest(writer http.ResponseWriter, request *http.Request, destination any) bool {
 	request.Body = http.MaxBytesReader(writer, request.Body, maxRequestBytes)
 	decoder := json.NewDecoder(request.Body)
@@ -431,26 +328,6 @@ type errorEnvelope struct {
 }
 
 func writeDomainError(writer http.ResponseWriter, err error) {
-	var runtimeError *farfieldruntime.Error
-	if errors.As(err, &runtimeError) {
-		status := http.StatusUnprocessableEntity
-		switch runtimeError.Code {
-		case "FR_NOT_FOUND":
-			status = http.StatusNotFound
-		case "FR_IDEMPOTENCY_CONFLICT", "FR_CONCURRENT_TRANSITION":
-			status = http.StatusConflict
-		case "FR_CHECKPOINT_TOO_LARGE":
-			status = http.StatusRequestEntityTooLarge
-		case "FR_INVALID_CONFIGURATION", "FR_INVALID_OPERATION", "FR_INVALID_RUN", "FR_INVALID_CHECKPOINT", "FR_INVALID_EVENT", "FR_INVALID_TRANSITION", "FR_INVALID_REQUEST":
-			status = http.StatusBadRequest
-		case "FR_EVENT_CORRUPT":
-			status = http.StatusInternalServerError
-		case "FR_EVENT_WRITE_FAILED", "FR_EVENT_READ_FAILED", "FR_EVENT_LIST_FAILED":
-			status = http.StatusServiceUnavailable
-		}
-		writeError(writer, status, runtimeError.Code, runtimeError.Message, runtimeError.Cause)
-		return
-	}
 	var domainError *history.Error
 	if !errors.As(err, &domainError) {
 		writeError(writer, http.StatusInternalServerError, "FH_INTERNAL", "internal error", err)

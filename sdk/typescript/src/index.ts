@@ -18,11 +18,8 @@ export {
   Conversation,
   Farfield,
   VERSION,
-  type CheckpointRunInput,
   type ConversationOptions,
-  type CreateRunInput,
   type FarfieldOptions,
-  type TransitionRunInput,
 } from "./client.js";
 export type {
   ContentRef,
@@ -33,9 +30,6 @@ export type {
   Json,
   Query,
   RequestOptions,
-  Run,
-  RunStatus,
-  RuntimeEvent,
   SearchHit,
   SearchQuery,
   SearchResult,

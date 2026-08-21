@@ -128,45 +128,6 @@ export interface SearchResult {
   index_updated_at: string;
 }
 
-export type RunStatus =
-  | "queued"
-  | "running"
-  | "waiting"
-  | "sleeping"
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "ambiguous";
-
-export interface RuntimeEvent {
-  schema_version: string;
-  id: string;
-  run_id: string;
-  operation_id: string;
-  sequence: number;
-  attempt: number;
-  kind: string;
-  from: RunStatus | null;
-  to: RunStatus;
-  occurred_at: string;
-  recorded_at: string;
-  checkpoint?: Json;
-  previous_event_sha256?: string;
-  event_sha256: string;
-}
-
-export interface Run {
-  id: string;
-  status: RunStatus;
-  sequence: number;
-  attempt: number;
-  updated_at: string;
-  last_event_id: string;
-  last_event_sha256: string;
-  checkpoint?: Json;
-  checkpoint_at?: string;
-}
-
 export interface RequestOptions {
   signal?: AbortSignal;
 }

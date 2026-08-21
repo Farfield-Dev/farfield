@@ -9,7 +9,7 @@ Every authoritative write uses atomic create-if-absent semantics. Existing ident
 Successful writes must also be immediately visible to subsequent `GET` and
 `LIST` operations. Amazon S3 and Google Cloud Storage provide strong
 read-after-write and list consistency; an S3-compatible endpoint must match
-those semantics to support the Runtime journal.
+those semantics to preserve correct immutable appends and projections.
 
 ## History layout
 
@@ -18,7 +18,6 @@ history/v2/conversations/<conversation-hash>/segments/<segment-hash>.json
 history/v2/blobs/sha256/<first-two-hex>/<remaining-hex>
 projections/v1/conversations/deltas/<source-hash-prefix>/<source-hash>.json
 projections/v1/conversations/snapshots/<generation>-<time>-<hash>.json
-runtime/v1/runs/<run-hash-prefix>/<run-hash>/events/<20-digit-sequence>.json
 ```
 
 Payloads use RFC 8785 JSON Canonicalization Scheme (JCS). Every record is stored
@@ -108,23 +107,6 @@ This first implementation intentionally optimizes a single query process. At
 large multi-replica scale, immutable object-backed index packs and manifests
 will let replicas download a ready index generation instead of independently
 rebuilding from every authoritative segment.
-
-## Runtime journal
-
-A run is a contiguous sequence of immutable events. There is no mutable head
-object and no database row containing current state. Writers read and verify the
-chain, then atomically create the predictable object for `sequence + 1`. Only
-one concurrent writer can win that key. A stable operation ID makes the result
-recoverable when the caller cannot tell whether its write committed.
-
-Each event contains the previous event's SHA-256 digest, the status before and
-after the operation, and the attempt number. Current run state is a reduction of
-the verified chain. A transition from `queued` to `running` starts a new
-attempt. Checkpoint events retain status and embed canonical JSON up to one MiB.
-
-This layout deliberately favors correctness and low operational burden for
-long-horizon runs. Reads are linear in the number of events today. Snapshot
-packs and caches can accelerate long chains later without becoming authority.
 
 ## Local filesystem
 

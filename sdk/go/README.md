@@ -1,6 +1,6 @@
 # Farfield Go SDK
 
-The Go SDK is a zero-dependency HTTP client for Farfield History and Runtime.
+The Go SDK is a zero-dependency HTTP client for Farfield History.
 Successful mutation calls are durable acknowledgments, not local queue accepts.
 
 ```go
@@ -81,20 +81,7 @@ records, err := client.Query(ctx, farfield.HistoryQuery{
 conversations, err := client.Conversations(ctx, 20)
 ```
 
-Journal a run managed by your worker:
-
-```go
-created, err := client.CreateRun(ctx, farfield.CreateRunInput{
-    ID: "run_123",
-    Checkpoint: map[string]any{"next": "research"},
-})
-
-_, err = client.TransitionRun(ctx, created.RunID, farfield.TransitionRunInput{
-    To: farfield.Running,
-})
-```
-
 Configuration defaults to `FARFIELD_ENDPOINT=http://127.0.0.1:8787` and reads
 an optional `FARFIELD_TOKEN`. Use `WithBeforeSend` to redact or reject content
-before encoding and transport. Generated record, segment, run, and operation
-IDs remain stable across automatic retries.
+before encoding and transport. Generated record and segment IDs remain stable
+across automatic retries.

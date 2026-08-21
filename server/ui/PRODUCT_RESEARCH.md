@@ -28,7 +28,8 @@ Farfield can make durable evidence the center instead:
 - immutable segments and record hashes make integrity inspectable, not implied;
 - dashboards and indexes are explicitly rebuildable projections;
 - the local inspector requires no account and sends trace content nowhere;
-- runtime checkpoints and history can eventually meet in one replay workflow.
+- complete provider evidence and normalized semantic events can support one
+  replay and evaluation workflow.
 
 This is a product distinction, not only a storage implementation detail. The UI
 should continually communicate where evidence lives, whether it is sealed, and
@@ -61,8 +62,8 @@ which views are authoritative versus projected.
    tree and aggregated agent graph views.
 4. Add immutable annotations and evaluation results linked to records and traces;
    support promoting production evidence into versioned evaluation datasets.
-5. Connect history records to runtime checkpoints for safe replay-from-step and
-   recovery diagnosis, with explicit side-effect warnings.
+5. Add trace comparison and dataset export so production evidence can become a
+   reproducible evaluation without copying it into another silo.
 6. Add prompt/model/version dimensions and cost tables so comparisons can explain
    regressions rather than merely show deltas.
 

@@ -1,7 +1,7 @@
 # Design documents
 
 Design documents record substantial changes to Farfield's storage model,
-protocols, and execution semantics. They explain why a design exists, the
+protocols, and query semantics. They explain why a design exists, the
 constraints it must satisfy, its tradeoffs, and the prior art that informed it.
 
 The possible statuses are:

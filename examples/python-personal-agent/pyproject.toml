@@ -1,7 +1,7 @@
 [project]
 name = "farfield-personal-agent"
 version = "0.1.0"
-description = "A web-research personal agent with durable Farfield history and runs"
+description = "A web-research personal agent with durable Farfield history and traces"
 requires-python = ">=3.11"
 dependencies = [
   "anthropic>=0.70",

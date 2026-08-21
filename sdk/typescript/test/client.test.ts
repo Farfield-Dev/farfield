@@ -293,7 +293,7 @@ test("Claude Agent SDK hook lifecycle is captured through its real callback type
   assert.equal(integration.stats().committed, 3);
 });
 
-test("history reads and runtime operations cover the complete API", async () => {
+test("history reads cover the complete API", async () => {
   const ff = new Farfield({ endpoint });
   assert.equal(await ff.health(), true);
   assert.equal((await ff.query({ conversationId: "conv_query", tags: { env: "test" }, limit: 10 }))[0]?.id, "rec_query");
@@ -302,12 +302,6 @@ test("history reads and runtime operations cover the complete API", async () => 
   assert.equal((await ff.conversations())[0]?.id, "conv_query");
   assert.equal((await ff.timeline("conv_query"))[0]?.record.id, "rec_query");
 
-  const created = await ff.createRun({ id: "run_one", operationId: "op_create" });
-  assert.equal(created.run_id, "run_one");
-  assert.equal((await ff.getRun("run_one")).status, "running");
-  assert.equal((await ff.runEvents("run_one"))[0]?.operation_id, "op_create");
-  assert.equal((await ff.transitionRun("run_one", "waiting")).to, "waiting");
-  assert.equal((await ff.checkpointRun("run_one", { checkpoint: { step: 1 } })).to, "running");
 });
 
 test("server failures are typed and actionable", async () => {
@@ -359,20 +353,6 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   if (url.pathname === "/v1/history/records/rec_query") return send(response, 200, { record: record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent), content: { text: "hello" } });
   if (url.pathname === "/v1/history/conversations") return send(response, 200, [{ id: "conv_query", record_count: 1, first_seen_at: "2026-01-01T00:00:00Z", last_seen_at: "2026-01-01T00:00:00Z", agents: [], kinds: ["message.user"] }]);
   if (url.pathname === "/v1/history/conversations/conv_query/timeline") return send(response, 200, [{ record: record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent), content: { text: "hello" } }]);
-  if (url.pathname === "/v1/runtime/runs" && request.method === "POST") {
-    const value = JSON.parse(body) as { id: string; operation_id: string };
-    return send(response, 201, runtimeEvent(value.id, value.operation_id, "queued"));
-  }
-  if (url.pathname === "/v1/runtime/runs/run_one") return send(response, 200, { id: "run_one", status: "running", sequence: 1, attempt: 1 });
-  if (url.pathname === "/v1/runtime/runs/run_one/events") return send(response, 200, [runtimeEvent("run_one", "op_create", "queued")]);
-  if (url.pathname.endsWith("/transitions")) {
-    const value = JSON.parse(body) as { operation_id: string; to: string };
-    return send(response, 201, runtimeEvent("run_one", value.operation_id, value.to));
-  }
-  if (url.pathname.endsWith("/checkpoints")) {
-    const value = JSON.parse(body) as { operation_id: string };
-    return send(response, 201, runtimeEvent("run_one", value.operation_id, "running"));
-  }
   sendError(response, 404, "FH_NOT_FOUND", "not found");
 }
 
@@ -385,10 +365,6 @@ function record(event: WireEvent): Record<string, unknown> {
     record_sha256: "a".repeat(64),
     tags: {},
   };
-}
-
-function runtimeEvent(runId: string, operationId: string, to: string): Record<string, Json> {
-  return { id: "evt_one", run_id: runId, operation_id: operationId, sequence: 0, attempt: 0, kind: "created", to };
 }
 
 function readBody(request: IncomingMessage): Promise<string> {

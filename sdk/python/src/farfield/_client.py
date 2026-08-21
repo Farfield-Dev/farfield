@@ -24,8 +24,6 @@ from ._models import (
     Entry,
     Event,
     Record,
-    Run,
-    RuntimeEvent,
     Scope,
     SearchResult,
     Segment,
@@ -39,7 +37,7 @@ BeforeSend = Callable[[Event], Event | None]
 
 
 class Farfield:
-    """Durable-by-default Farfield History and Runtime client."""
+    """Durable-by-default Farfield History client."""
 
     def __init__(
         self,
@@ -268,57 +266,6 @@ class Farfield:
             resolved = _id("conv_")
         return Batch(self, resolved, segment_id)
 
-    def create_run(
-        self,
-        *,
-        run_id: str | None = None,
-        operation_id: str | None = None,
-        checkpoint: JSON = None,
-    ) -> RuntimeEvent:
-        payload: dict[str, Any] = {
-            "id": run_id or _id("run_"),
-            "operation_id": operation_id or _id("op_"),
-        }
-        if checkpoint is not None:
-            payload["checkpoint"] = checkpoint
-        return RuntimeEvent.from_payload(
-            _mapping(self._request("POST", "/v1/runtime/runs", payload))
-        )
-
-    def get_run(self, run_id: str) -> Run:
-        return Run.from_payload(
-            _mapping(self._request("GET", f"/v1/runtime/runs/{quote(run_id, safe='')}"))
-        )
-
-    def run_events(self, run_id: str) -> tuple[RuntimeEvent, ...]:
-        values = _list(self._request("GET", f"/v1/runtime/runs/{quote(run_id, safe='')}/events"))
-        return tuple(RuntimeEvent.from_payload(_mapping(event)) for event in values)
-
-    def transition_run(
-        self,
-        run_id: str,
-        to: str,
-        *,
-        operation_id: str | None = None,
-        checkpoint: JSON = None,
-    ) -> RuntimeEvent:
-        payload: dict[str, Any] = {"operation_id": operation_id or _id("op_"), "to": to}
-        if checkpoint is not None:
-            payload["checkpoint"] = checkpoint
-        path = f"/v1/runtime/runs/{quote(run_id, safe='')}/transitions"
-        return RuntimeEvent.from_payload(_mapping(self._request("POST", path, payload)))
-
-    def checkpoint_run(
-        self,
-        run_id: str,
-        checkpoint: JSON,
-        *,
-        operation_id: str | None = None,
-    ) -> RuntimeEvent:
-        payload = {"operation_id": operation_id or _id("op_"), "checkpoint": checkpoint}
-        path = f"/v1/runtime/runs/{quote(run_id, safe='')}/checkpoints"
-        return RuntimeEvent.from_payload(_mapping(self._request("POST", path, payload)))
-
     def prepare_event(self, event: Event) -> Event:
         """Snapshot caller-local scope and privacy policy without sending the event."""
         scope = _merge_scope(self.defaults, get_scope())
@@ -534,21 +481,6 @@ class AsyncFarfield:
         scope = get_scope()
         resolved = conversation_id or (scope.conversation_id if scope else None) or _id("conv_")
         return AsyncBatch(self, resolved, segment_id)
-
-    async def create_run(self, **input: Any) -> RuntimeEvent:
-        return await asyncio.to_thread(self._sync.create_run, **input)
-
-    async def get_run(self, run_id: str) -> Run:
-        return await asyncio.to_thread(self._sync.get_run, run_id)
-
-    async def run_events(self, run_id: str) -> tuple[RuntimeEvent, ...]:
-        return await asyncio.to_thread(self._sync.run_events, run_id)
-
-    async def transition_run(self, run_id: str, to: str, **input: Any) -> RuntimeEvent:
-        return await asyncio.to_thread(self._sync.transition_run, run_id, to, **input)
-
-    async def checkpoint_run(self, run_id: str, checkpoint: JSON, **input: Any) -> RuntimeEvent:
-        return await asyncio.to_thread(self._sync.checkpoint_run, run_id, checkpoint, **input)
 
 
 class AsyncConversation(AbstractAsyncContextManager["AsyncConversation"]):

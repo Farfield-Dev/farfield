@@ -1,6 +1,6 @@
 # Farfield
 
-Farfield makes object storage the durable source of truth for agent history and execution.
+Farfield makes object storage the durable source of truth for agent history and traces.
 
 Current release:
 - Go core and CLI
@@ -14,12 +14,8 @@ Current release:
   normalization
 - native Python, TypeScript, and Go SDKs with bounded background processors
 - direct OpenAI Agents and Claude Agent SDK adapters for Python and TypeScript
-- immutable, hash-chained Runtime journal
-- validated transitions, attempts, checkpoints, and idempotent recovery
-- Runtime Go API, HTTP routes, CLI, and whole-store verification
 
 Not implemented yet:
-- worker scheduling, leases, signals, timers, and automatic resumption
 - sharded high-scale query projections and compacted range-readable packs
 - authentication and multi-tenancy
 

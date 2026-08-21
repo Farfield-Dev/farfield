@@ -10,12 +10,12 @@ breaking protocol changes.
 
 - Native Google Cloud Storage support using Application Default Credentials and
   atomic `ifGenerationMatch=0` creation, plus an opt-in live conformance suite.
-- A live Anthropic web-research agent example with retained GCS-backed traces,
-  durable run checkpoints, and a query helper.
+- A live Anthropic web-research agent example with retained GCS-backed traces
+  and a query helper.
 - Real-server Go and TypeScript SDK smoke examples.
 - Native Python, TypeScript, and Go SDKs with durable capture, explicit batch
-  segments, conversation context, privacy hooks, typed errors, History reads,
-  and Runtime journal access.
+  segments, conversation context, privacy hooks, typed errors, and History
+  reads.
 - Exact-body retry behavior with stable client-generated IDs and timestamps.
 - SDK package, type, lint, and behavioral checks in CI.
 - Embedded BM25 full-text search with phrase and prefix syntax, exact metadata
@@ -30,6 +30,9 @@ breaking protocol changes.
   plus documented OTLP paths for mainstream agent frameworks.
 
 ### Changed
+
+- Removed the experimental durable run journal and its CLI, HTTP, and SDK
+  surfaces to focus Farfield's public contract on agent history and traces.
 
 - History now stores every single and batch append as an immutable segment
   under the full conversation hash. Timelines list only the selected
