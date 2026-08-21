@@ -13,10 +13,7 @@ import (
 	"github.com/Farfield-Dev/farfield/internal/canonicaljson"
 )
 
-const (
-	RecordSchema   = "farfield.history.record.v1"
-	RecordSchemaV2 = "farfield.history.record.v2"
-)
+const RecordSchema = "farfield.history.record.v2"
 
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,254}$`)
 
@@ -49,7 +46,7 @@ type Record struct {
 }
 
 func (record Record) Validate() error {
-	if record.SchemaVersion != RecordSchema && record.SchemaVersion != RecordSchemaV2 {
+	if record.SchemaVersion != RecordSchema {
 		return failure("FH_SCHEMA_UNSUPPORTED", fmt.Sprintf("unsupported schema %q", record.SchemaVersion), nil)
 	}
 	for label, value := range map[string]string{
@@ -75,26 +72,18 @@ func (record Record) Validate() error {
 	if record.Content.Size < 0 || !validDigest(record.Content.SHA256) || record.Content.MediaType != "application/json" {
 		return failure("FH_INVALID_RECORD", "content reference is invalid", nil)
 	}
-	switch record.SchemaVersion {
-	case RecordSchema:
-		expectedContentKey := fmt.Sprintf("blobs/v1/sha256/%s/%s", record.Content.SHA256[:2], record.Content.SHA256[2:])
-		if record.Content.Key != expectedContentKey || record.Content.Storage != "" || record.Content.EntryIndex != nil {
-			return failure("FH_INVALID_RECORD", "v1 content reference is invalid", nil)
+	switch record.Content.Storage {
+	case "segment":
+		if record.Content.EntryIndex == nil || *record.Content.EntryIndex < 0 || !strings.HasPrefix(record.Content.Key, "history/v2/conversations/") {
+			return failure("FH_INVALID_RECORD", "segment content reference is invalid", nil)
 		}
-	case RecordSchemaV2:
-		switch record.Content.Storage {
-		case "segment":
-			if record.Content.EntryIndex == nil || *record.Content.EntryIndex < 0 || !strings.HasPrefix(record.Content.Key, "segments/v1/shards/") {
-				return failure("FH_INVALID_RECORD", "v2 segment content reference is invalid", nil)
-			}
-		case "blob":
-			expectedContentKey := fmt.Sprintf("blobs/v1/sha256/%s/%s", record.Content.SHA256[:2], record.Content.SHA256[2:])
-			if record.Content.Key != expectedContentKey || record.Content.EntryIndex != nil {
-				return failure("FH_INVALID_RECORD", "v2 blob content reference is invalid", nil)
-			}
-		default:
-			return failure("FH_INVALID_RECORD", "v2 segment content reference is invalid", nil)
+	case "blob":
+		expectedContentKey := fmt.Sprintf("history/v2/blobs/sha256/%s/%s", record.Content.SHA256[:2], record.Content.SHA256[2:])
+		if record.Content.Key != expectedContentKey || record.Content.EntryIndex != nil {
+			return failure("FH_INVALID_RECORD", "blob content reference is invalid", nil)
 		}
+	default:
+		return failure("FH_INVALID_RECORD", "content storage is invalid", nil)
 	}
 	for key, value := range record.Tags {
 		if len(key) == 0 || len(key) > 128 || len(value) > 1024 {

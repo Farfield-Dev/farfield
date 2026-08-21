@@ -6,15 +6,21 @@ Farfield's destination is an open durable execution and observability platform f
 
 - [x] Go module, CLI, storage boundary, and package architecture
 - [x] Canonical immutable History records and content-addressed payloads
-- [x] Local filesystem and S3-compatible storage implementations
+- [x] Local filesystem, native GCS, and S3-compatible storage implementations
 - [x] Verification and deterministic conformance fixtures
 - [x] Immutable segmented history log with inline content and external blobs
+- [x] Exact conversation-local object layout with concurrent timeline reads
 - [ ] Sharded manifests and compacted range-readable packs ([design](docs/design/0001-object-storage-native-history.md))
-- [ ] Rebuildable local query projection and disposable block cache
+- [x] Rebuildable object-backed conversation projection with immutable deltas,
+  checksummed snapshots, retry repair, and warm in-memory reads
+- [x] Embedded BM25 full-text search with phrase/prefix queries, indexed agent
+  metadata filters, disposable disk caching, and authoritative rebuild
+- [ ] Sharded query projections and disposable range/block cache
 - [ ] Agent-shaped object-storage benchmark and recovery harness ([workload model](docs/design/0002-agent-workload-storage-fit.md))
 - [x] Versioned HTTP ingestion and local inspector
 - [ ] OTLP ingestion
-- [ ] Python and TypeScript capture SDKs
+- [x] Native Python, TypeScript, and Go SDKs for capture, query, and Runtime
+- [ ] Framework adapters and bounded background SDK processors
 - [ ] Release artifacts, Homebrew installation, and signed containers
 
 ## Next: durable agent execution

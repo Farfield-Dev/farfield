@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -73,7 +76,7 @@ func runRuntime(arguments []string, stdout, stderr io.Writer) int {
 func createRun(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime create", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("id", "", "stable run ID; generated when omitted")
 	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
 	checkpoint := set.String("checkpoint", "", "optional JSON checkpoint")
@@ -100,7 +103,7 @@ func createRun(arguments []string, stdout, stderr io.Writer) int {
 func getRun(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime get", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -123,7 +126,7 @@ func getRun(arguments []string, stdout, stderr io.Writer) int {
 func runEvents(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime events", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -146,7 +149,7 @@ func runEvents(arguments []string, stdout, stderr io.Writer) int {
 func transitionRun(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime transition", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
 	to := set.String("to", "", "target status")
@@ -174,7 +177,7 @@ func transitionRun(arguments []string, stdout, stderr io.Writer) int {
 func saveRunCheckpoint(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime checkpoint", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	runID := set.String("run", "", "run ID")
 	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
 	checkpoint := set.String("checkpoint", "", "JSON checkpoint")
@@ -201,7 +204,7 @@ func saveRunCheckpoint(arguments []string, stdout, stderr io.Writer) int {
 func verifyRuntime(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("runtime verify", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -245,8 +248,14 @@ func runHistory(arguments []string, stdout, stderr io.Writer) int {
 		return listRecords(arguments[1:], stdout, stderr)
 	case "query":
 		return queryRecords(arguments[1:], stdout, stderr)
+	case "search":
+		return searchHistory(arguments[1:], stdout, stderr)
+	case "search-index":
+		return searchIndex(arguments[1:], stdout, stderr)
 	case "conversations":
 		return conversations(arguments[1:], stdout, stderr)
+	case "projections":
+		return historyProjections(arguments[1:], stdout, stderr)
 	case "timeline":
 		return timeline(arguments[1:], stdout, stderr)
 	case "verify":
@@ -282,7 +291,7 @@ type batchFileRecord struct {
 func appendBatch(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history append-batch", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	file := set.String("file", "", "JSON batch file")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -335,14 +344,18 @@ func appendBatch(arguments []string, stdout, stderr io.Writer) int {
 func queryRecords(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history query", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	conversation := set.String("conversation", "", "conversation ID")
 	trace := set.String("trace", "", "trace ID")
 	kind := set.String("kind", "", "record kind")
 	agent := set.String("agent", "", "agent name")
 	tool := set.String("tool", "", "tool name")
 	status := set.String("status", "", "record status")
+	since := set.String("since", "", "minimum RFC3339 event time")
+	until := set.String("until", "", "maximum RFC3339 event time")
 	limit := set.Int("limit", 100, "maximum records")
+	var tagValues repeatedFlag
+	set.Var(&tagValues, "tag", "exact key=value tag filter; repeatable")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -354,20 +367,136 @@ func queryRecords(arguments []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printError(stderr, err)
 	}
-	records, err := service.Query(context.Background(), history.Query{
+	query := history.Query{
 		ConversationID: *conversation, TraceID: *trace, Kind: *kind,
-		Agent: *agent, Tool: *tool, Status: *status, Limit: *limit,
-	})
+		Agent: *agent, Tool: *tool, Status: *status, Limit: *limit, Tags: map[string]string{},
+	}
+	for _, value := range tagValues {
+		key, tagValue, found := strings.Cut(value, "=")
+		if !found || key == "" {
+			fmt.Fprintln(stderr, "--tag must use key=value syntax")
+			return 2
+		}
+		query.Tags[key] = tagValue
+	}
+	for _, temporal := range []struct {
+		value  string
+		target **time.Time
+	}{{*since, &query.Since}, {*until, &query.Until}} {
+		if temporal.value == "" {
+			continue
+		}
+		parsed, parseErr := time.Parse(time.RFC3339Nano, temporal.value)
+		if parseErr != nil {
+			fmt.Fprintf(stderr, "invalid RFC3339 query time %q\n", temporal.value)
+			return 2
+		}
+		*temporal.target = &parsed
+	}
+	records, err := service.Query(context.Background(), query)
 	if err != nil {
 		return printError(stderr, err)
 	}
 	return printJSON(stdout, records)
 }
 
+type repeatedFlag []string
+
+func (values *repeatedFlag) String() string { return strings.Join(*values, ",") }
+func (values *repeatedFlag) Set(value string) error {
+	*values = append(*values, value)
+	return nil
+}
+
+func searchHistory(arguments []string, stdout, stderr io.Writer) int {
+	set := flag.NewFlagSet("history search", flag.ContinueOnError)
+	set.SetOutput(stderr)
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
+	cachePath := set.String("cache", "", "local disposable index path; :memory: disables persistence")
+	text := set.String("text", "", "full-text query; quotes form phrases and * suffixes form prefixes")
+	conversation := set.String("conversation", "", "conversation ID")
+	trace := set.String("trace", "", "trace ID")
+	kind := set.String("kind", "", "record kind")
+	agent := set.String("agent", "", "agent name")
+	tool := set.String("tool", "", "tool name")
+	status := set.String("status", "", "record status")
+	since := set.String("since", "", "minimum RFC3339 event time")
+	until := set.String("until", "", "maximum RFC3339 event time")
+	limit := set.Int("limit", 100, "maximum hits")
+	var tagValues repeatedFlag
+	set.Var(&tagValues, "tag", "exact key=value tag filter; repeatable")
+	if err := set.Parse(arguments); err != nil {
+		return 2
+	}
+	if *limit < 1 || *limit > 1000 {
+		fmt.Fprintln(stderr, "--limit must be between 1 and 1000")
+		return 2
+	}
+	query := history.SearchQuery{
+		Text: *text, ConversationID: *conversation, TraceID: *trace, Kind: *kind,
+		Agent: *agent, Tool: *tool, Status: *status, Limit: *limit, Tags: map[string]string{},
+	}
+	for _, value := range tagValues {
+		key, tagValue, found := strings.Cut(value, "=")
+		if !found || key == "" {
+			fmt.Fprintln(stderr, "--tag must use key=value syntax")
+			return 2
+		}
+		query.Tags[key] = tagValue
+	}
+	for _, temporal := range []struct {
+		value  string
+		target **time.Time
+	}{{*since, &query.Since}, {*until, &query.Until}} {
+		value, target := temporal.value, temporal.target
+		if value == "" {
+			continue
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			fmt.Fprintf(stderr, "invalid RFC3339 search time %q\n", value)
+			return 2
+		}
+		*target = &parsed
+	}
+	service, err := openSearchHistory(context.Background(), *storeURI, *cachePath)
+	if err != nil {
+		return printError(stderr, err)
+	}
+	result, err := service.Search(context.Background(), query)
+	if err != nil {
+		return printError(stderr, err)
+	}
+	return printJSON(stdout, result)
+}
+
+func searchIndex(arguments []string, stdout, stderr io.Writer) int {
+	if len(arguments) == 0 || arguments[0] != "rebuild" {
+		fmt.Fprintln(stderr, "usage: farfield history search-index rebuild [--store URI] [--cache PATH]")
+		return 2
+	}
+	set := flag.NewFlagSet("history search-index rebuild", flag.ContinueOnError)
+	set.SetOutput(stderr)
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
+	cachePath := set.String("cache", "", "local disposable index path; :memory: disables persistence")
+	if err := set.Parse(arguments[1:]); err != nil {
+		return 2
+	}
+	service, err := openSearchHistory(context.Background(), *storeURI, *cachePath)
+	if err != nil {
+		return printError(stderr, err)
+	}
+	result, err := service.RebuildSearchIndex(context.Background())
+	if err != nil {
+		return printError(stderr, err)
+	}
+	return printJSON(stdout, result)
+}
+
 func conversations(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history conversations", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	limit := set.Int("limit", 100, "maximum conversations")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -387,10 +516,36 @@ func conversations(arguments []string, stdout, stderr io.Writer) int {
 	return printJSON(stdout, values)
 }
 
+func historyProjections(arguments []string, stdout, stderr io.Writer) int {
+	if len(arguments) == 0 || arguments[0] != "rebuild" {
+		fmt.Fprintln(stderr, "usage: farfield history projections rebuild [--store URI]")
+		return 2
+	}
+	set := flag.NewFlagSet("history projections rebuild", flag.ContinueOnError)
+	set.SetOutput(stderr)
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
+	if err := set.Parse(arguments[1:]); err != nil {
+		return 2
+	}
+	if set.NArg() != 0 {
+		fmt.Fprintln(stderr, "history projections rebuild does not accept positional arguments")
+		return 2
+	}
+	service, err := openHistory(context.Background(), *storeURI)
+	if err != nil {
+		return printError(stderr, err)
+	}
+	result, err := service.RebuildConversationProjection(context.Background())
+	if err != nil {
+		return printError(stderr, err)
+	}
+	return printJSON(stdout, result)
+}
+
 func timeline(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history timeline", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	conversation := set.String("conversation", "", "conversation ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -413,8 +568,9 @@ func timeline(arguments []string, stdout, stderr io.Writer) int {
 func runServer(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("serve", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	listen := set.String("listen", "127.0.0.1:8787", "HTTP listen address")
+	searchCache := set.String("search-cache", "", "local disposable search index path; :memory: disables persistence")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -426,7 +582,11 @@ func runServer(arguments []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printError(stderr, err)
 	}
-	service, err := history.New(store)
+	resolvedSearchCache, err := resolveSearchCachePath(store.Description(), *searchCache)
+	if err != nil {
+		return printError(stderr, err)
+	}
+	service, err := history.New(store, history.WithSearchCache(resolvedSearchCache))
 	if err != nil {
 		return printError(stderr, err)
 	}
@@ -454,7 +614,7 @@ func runServer(arguments []string, stdout, stderr io.Writer) int {
 func appendRecord(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history append", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	recordID := set.String("id", "", "stable record ID for idempotent retries")
 	conversation := set.String("conversation", "", "conversation ID")
 	kind := set.String("kind", "", "record kind")
@@ -493,7 +653,7 @@ func appendRecord(arguments []string, stdout, stderr io.Writer) int {
 func getRecord(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history get", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	recordID := set.String("id", "", "record ID")
 	if err := set.Parse(arguments); err != nil {
 		return 2
@@ -524,7 +684,7 @@ func getRecord(arguments []string, stdout, stderr io.Writer) int {
 func listRecords(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history list", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -542,7 +702,7 @@ func listRecords(arguments []string, stdout, stderr io.Writer) int {
 func verify(arguments []string, stdout, stderr io.Writer) int {
 	set := flag.NewFlagSet("history verify", flag.ContinueOnError)
 	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file:// URI, or s3:// URI")
+	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
 	if err := set.Parse(arguments); err != nil {
 		return 2
 	}
@@ -569,6 +729,33 @@ func openHistory(ctx context.Context, uri string) (*history.Service, error) {
 		return nil, err
 	}
 	return history.New(store)
+}
+
+func openSearchHistory(ctx context.Context, uri, requestedCache string) (*history.Service, error) {
+	store, err := storeopen.Open(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	cachePath, err := resolveSearchCachePath(store.Description(), requestedCache)
+	if err != nil {
+		return nil, err
+	}
+	return history.New(store, history.WithSearchCache(cachePath))
+}
+
+func resolveSearchCachePath(storeDescription, requested string) (string, error) {
+	if requested == ":memory:" {
+		return "", nil
+	}
+	if requested != "" {
+		return filepath.Abs(requested)
+	}
+	root, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory: %w", err)
+	}
+	digest := sha256.Sum256([]byte(storeDescription))
+	return filepath.Join(root, "farfield", "search", hex.EncodeToString(digest[:])+".json.gz"), nil
 }
 
 func openRuntime(ctx context.Context, uri string) (*farfieldruntime.Journal, error) {
@@ -624,7 +811,10 @@ func historyUsage(writer io.Writer) {
   farfield history get --id ID [--store URI]
   farfield history list [--store URI]
   farfield history query [--conversation ID] [--kind KIND] [--limit N] [--store URI]
+  farfield history search [--text QUERY] [--conversation ID] [--tag KEY=VALUE] [--limit N] [--store URI]
+  farfield history search-index rebuild [--store URI] [--cache PATH]
   farfield history conversations [--limit N] [--store URI]
+  farfield history projections rebuild [--store URI]
   farfield history timeline --conversation ID [--store URI]
   farfield history verify [--store URI]`))
 }

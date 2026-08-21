@@ -11,6 +11,7 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/Farfield-Dev/farfield/internal/canonicaljson"
@@ -22,19 +23,22 @@ const (
 	SegmentSchema            = "farfield.history.segment.v1"
 	DefaultMaxSegmentRecords = 1_000
 	DefaultMaxSegmentBytes   = 16 * 1024 * 1024
+	historySegmentsPrefix    = "history/v2/conversations"
+	historyBlobPrefix        = "history/v2/blobs/sha256"
+	segmentReadConcurrency   = 16
 )
 
 // Segment is the durable batch unit for high-volume history ingestion. Small
 // JSON content is stored inline with its record envelope so one object commit
 // can make many logical records durable.
 type Segment struct {
-	SchemaVersion  string         `json:"schema_version"`
-	ID             string         `json:"id"`
-	ConversationID string         `json:"conversation_id"`
-	Shard          string         `json:"shard"`
-	CreatedAt      time.Time      `json:"created_at"`
-	Entries        []SegmentEntry `json:"entries"`
-	SegmentSHA256  string         `json:"segment_sha256,omitempty"`
+	SchemaVersion    string         `json:"schema_version"`
+	ID               string         `json:"id"`
+	ConversationID   string         `json:"conversation_id"`
+	ConversationHash string         `json:"conversation_hash"`
+	CreatedAt        time.Time      `json:"created_at"`
+	Entries          []SegmentEntry `json:"entries"`
+	SegmentSHA256    string         `json:"segment_sha256,omitempty"`
 }
 
 type SegmentEntry struct {
@@ -121,12 +125,12 @@ func (service *Service) AppendBatch(ctx context.Context, input AppendBatchInput)
 			contentRef.EntryIndex = &entryIndex
 			inline = json.RawMessage(content)
 		} else {
-			contentRef.Key = fmt.Sprintf("blobs/v1/sha256/%s/%s", contentSHA[:2], contentSHA[2:])
+			contentRef.Key = fmt.Sprintf("%s/%s/%s", historyBlobPrefix, contentSHA[:2], contentSHA[2:])
 			contentRef.Storage = "blob"
 			blobs = append(blobs, blobWrite{key: contentRef.Key, data: content})
 		}
 		record, sealErr := (Record{
-			SchemaVersion: RecordSchemaV2, ID: recordID,
+			SchemaVersion: RecordSchema, ID: recordID,
 			ConversationID: conversationID, Kind: value.Kind,
 			OccurredAt: occurredAt, RecordedAt: now, Sequence: value.Sequence,
 			TraceID: value.TraceID, SpanID: value.SpanID, ParentID: value.ParentID,
@@ -142,7 +146,7 @@ func (service *Service) AppendBatch(ctx context.Context, input AppendBatchInput)
 
 	segment, err := (Segment{
 		SchemaVersion: SegmentSchema, ID: segmentID,
-		ConversationID: conversationID, Shard: segmentShard(conversationID),
+		ConversationID: conversationID, ConversationHash: conversationHash(conversationID),
 		CreatedAt: now, Entries: entries,
 	}).Seal()
 	if err != nil {
@@ -171,9 +175,25 @@ func (service *Service) AppendBatch(ctx context.Context, input AppendBatchInput)
 		if !sameBatch(existing, input) {
 			return Segment{}, failure("FH_IDEMPOTENCY_CONFLICT", fmt.Sprintf("segment id %q was reused for different records", segmentID), err)
 		}
+		if err := service.projectSource(ctx, key, existing.SegmentSHA256, segmentRecords(existing)); err != nil {
+			return Segment{}, err
+		}
+		service.search.observeSegment(ctx, key, existing)
 		return existing, nil
 	}
+	if err := service.projectSource(ctx, key, segment.SegmentSHA256, segmentRecords(segment)); err != nil {
+		return Segment{}, err
+	}
+	service.search.observeSegment(ctx, key, segment)
 	return segment, nil
+}
+
+func segmentRecords(segment Segment) []Record {
+	records := make([]Record, len(segment.Entries))
+	for index, entry := range segment.Entries {
+		records[index] = entry.Record
+	}
+	return records
 }
 
 func (segment Segment) Validate() error {
@@ -183,8 +203,8 @@ func (segment Segment) Validate() error {
 	if !validID.MatchString(segment.ID) || !validID.MatchString(segment.ConversationID) || segment.CreatedAt.IsZero() || len(segment.Entries) == 0 {
 		return failure("FH_INVALID_SEGMENT", "segment identity, timestamp, or entries are invalid", nil)
 	}
-	if segment.Shard != segmentShard(segment.ConversationID) {
-		return failure("FH_INVALID_SEGMENT", "segment shard does not match its conversation", nil)
+	if segment.ConversationHash != conversationHash(segment.ConversationID) {
+		return failure("FH_INVALID_SEGMENT", "segment conversation hash does not match its conversation", nil)
 	}
 	key := segmentKey(segment.ID, segment.ConversationID)
 	recordIDs := make(map[string]struct{}, len(segment.Entries))
@@ -192,7 +212,7 @@ func (segment Segment) Validate() error {
 		if err := entry.Record.Verify(); err != nil {
 			return err
 		}
-		if entry.Record.SchemaVersion != RecordSchemaV2 || entry.Record.ConversationID != segment.ConversationID {
+		if entry.Record.SchemaVersion != RecordSchema || entry.Record.ConversationID != segment.ConversationID {
 			return failure("FH_INVALID_SEGMENT", fmt.Sprintf("entry %d does not belong to this segment", index), nil)
 		}
 		if _, exists := recordIDs[entry.Record.ID]; exists {
@@ -289,13 +309,33 @@ func (service *Service) listSegments(ctx context.Context, prefix string) ([]Segm
 	if err != nil {
 		return nil, failure("FH_SEGMENT_LIST_FAILED", "segments could not be listed", err)
 	}
-	segments := make([]Segment, 0, len(keys))
-	for _, key := range keys {
-		segment, err := service.readSegmentAt(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		segments = append(segments, segment)
+	segments := make([]Segment, len(keys))
+	jobs := make(chan int)
+	workers := min(segmentReadConcurrency, len(keys))
+	var wait sync.WaitGroup
+	var firstError error
+	var errorOnce sync.Once
+	for range workers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				segment, readErr := service.readSegmentAt(ctx, keys[index])
+				if readErr != nil {
+					errorOnce.Do(func() { firstError = readErr })
+					continue
+				}
+				segments[index] = segment
+			}
+		}()
+	}
+	for index := range keys {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
+	if firstError != nil {
+		return nil, firstError
 	}
 	sort.Slice(segments, func(left, right int) bool {
 		if segments[left].CreatedAt.Equal(segments[right].CreatedAt) {
@@ -306,15 +346,19 @@ func (service *Service) listSegments(ctx context.Context, prefix string) ([]Segm
 	return segments, nil
 }
 
-func segmentShard(conversationID string) string {
+func conversationHash(conversationID string) string {
 	digest := sha256.Sum256([]byte(conversationID))
-	return hex.EncodeToString(digest[:1])
+	return hex.EncodeToString(digest[:])
+}
+
+func conversationSegmentPrefix(conversationID string) string {
+	return fmt.Sprintf("%s/%s/segments", historySegmentsPrefix, conversationHash(conversationID))
 }
 
 func segmentKey(segmentID, conversationID string) string {
 	digest := sha256.Sum256([]byte(conversationID + "\x00" + segmentID))
 	value := hex.EncodeToString(digest[:])
-	return fmt.Sprintf("segments/v1/shards/%s/%s.json", segmentShard(conversationID), value)
+	return fmt.Sprintf("%s/%s.json", conversationSegmentPrefix(conversationID), value)
 }
 
 func sameBatch(existing Segment, input AppendBatchInput) bool {

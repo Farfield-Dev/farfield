@@ -13,17 +13,21 @@ The project is building an open substrate for long-running agents: durable execu
 
 ## What works now
 
-- Append canonical JSON events to an immutable local object store.
+- Append canonical JSON events to query-aligned, conversation-local segments.
 - Commit many events in one checksummed, idempotent history segment.
 - Keep small event content inline and move larger content to addressed blobs.
-- Store payloads once by SHA-256 and reference them from sealed records.
+- Store large payloads once by SHA-256 and reference them from sealed records.
 - Retry appends safely with stable record IDs.
 - Detect record, payload, and immutable-write corruption.
-- Read a record and its payload without a database index.
+- Read and hydrate sealed records without another database.
 - Verify the authoritative store and identify orphaned blobs.
-- Use the same storage interface for local files and S3-compatible storage.
+- Use the same storage interface for local files, native Google Cloud Storage,
+  and S3-compatible storage.
 - Run everything through one `farfield` CLI binary.
 - Query records by conversation, trace, kind, agent, tool, or status.
+- Search event content with BM25 ranking, quoted phrases, prefix matching, time
+  bounds, and indexed conversation, trace, kind, agent, tool, status, and tag
+  filters.
 - Inspect conversation summaries and hydrated timelines.
 - Ingest and query over a versioned HTTP API.
 - Browse captured conversations in the embedded local inspector.
@@ -33,6 +37,10 @@ The project is building an open substrate for long-running agents: durable execu
 - Reconstruct and verify attempt counts, current state, and the complete
   hash-chained run journal.
 - Serialize concurrent run writers with one atomic object-store operation.
+- Capture and inspect History through native Python, TypeScript, and Go SDKs.
+- Keep conversation metadata isolated across Python async tasks, Node promise
+  chains, and explicit Go contexts.
+- Redact or drop sensitive events before they leave the agent process.
 
 ## Try it in two minutes
 
@@ -46,6 +54,39 @@ go run ./cmd/farfield serve
 ```
 
 Open [http://127.0.0.1:8787](http://127.0.0.1:8787) to inspect the captured conversation and its hydrated event timeline.
+
+## Use the native SDKs
+
+Each SDK has the same behavioral contract—durable acknowledgments, stable IDs,
+exact-body retries, scoped conversation metadata, typed errors, privacy hooks,
+batched segments, History reads, and Runtime access—expressed idiomatically for
+its language.
+
+```python
+from farfield import Farfield
+
+ff = Farfield()
+with ff.conversation(agent="support-agent") as conversation:
+    conversation.message("user", {"text": "Where is my order?"})
+    conversation.tool_result("lookup_order", {"status": "shipped"})
+
+print(ff.timeline(conversation.id))
+```
+
+```ts
+import { Farfield } from "@farfield/sdk";
+
+const ff = new Farfield();
+await ff.withConversation({ agent: "support-agent" }, async (conversation) => {
+  await conversation.message("user", { text: "Where is my order?" });
+  await conversation.toolResult("lookup_order", { status: "shipped" });
+});
+```
+
+See the [Python](sdk/python/README.md),
+[TypeScript](sdk/typescript/README.md), and [Go](sdk/go/README.md) guides. The
+packages are release candidates in this repository; registry publication is a
+separate release step.
 
 You can also capture from any language over HTTP. The segment endpoint is the
 preferred ingestion path for SDKs because one object commit can make multiple
@@ -96,6 +137,7 @@ go run ./cmd/farfield history append \
   --content '{"model":"gpt-5","text":"hello"}'
 
 go run ./cmd/farfield history timeline --conversation conv_demo
+go run ./cmd/farfield history search --text '"shipped order" lookup*' --agent support-agent
 go run ./cmd/farfield history verify
 
 go run ./cmd/farfield runtime create \
@@ -115,6 +157,19 @@ farfield history verify --store s3://my-bucket/farfield
 ```
 
 AWS credentials use the standard AWS SDK credential chain. Set `FARFIELD_S3_ENDPOINT` for a compatible endpoint such as MinIO or R2, and `FARFIELD_S3_PATH_STYLE=true` when the provider requires path-style addressing.
+
+Google Cloud Storage is native rather than routed through its S3 compatibility
+API. Farfield uses GCS generation preconditions for atomic immutable creation
+and the standard Application Default Credentials chain:
+
+```bash
+gcloud auth application-default login
+farfield serve --store gs://my-bucket/farfield --listen 127.0.0.1:8787
+```
+
+See the [real Python personal-agent example](examples/python-personal-agent/README.md)
+for a Claude web-research agent that records complete messages, tool calls,
+tool results, citations, usage, failures, and durable run checkpoints.
 
 ## Install
 
@@ -143,7 +198,7 @@ Python / TypeScript / Go SDKs
        ingest · history · runtime · query · replay
                          │
                          ▼
-              S3-compatible object storage
+          GCS or S3-compatible object storage
                    durable authority
                          │
                          ▼
@@ -154,17 +209,32 @@ The Go core owns storage semantics, ingestion, querying, runtime coordination, r
 
 See [docs/architecture.md](docs/architecture.md) for package boundaries,
 [docs/design](docs/design/README.md) for substantial design proposals, and
-[ROADMAP.md](ROADMAP.md) for the path from this bootstrap to durable agent
+[ROADMAP.md](ROADMAP.md) for the path from this first release to durable agent
 execution.
 
 ## Current boundaries
 
-This first release is useful for local evaluation, SDK development, and proving the storage protocol. It is not yet a production observability backend:
+This first release is useful for durable agent capture, replay, inspection, and
+run journaling against storage you control. It is not yet a production
+multi-tenant observability backend or worker scheduler:
 
-- Queries currently scan authoritative records and relevant conversation shards; manifests and a rebuildable query projection are next.
+- Conversation lists use a rebuildable object-backed projection with immutable
+  deltas and checksummed snapshots. Timelines list only the selected
+  conversation's exact prefix and fetch its segments concurrently. Structured
+  queries use the disposable search index; authoritative list-all and
+  record-ID-only reads still scan conversation segments. Rebuildable locator
+  projections and compacted range-readable packs are the scale path.
+- Full-text search uses a persistent but disposable embedded index. Its first
+  read synchronizes immutable History; warm searches are local, same-process
+  writes are visible immediately, and external writes refresh asynchronously.
+  Large multi-replica deployments will need object-backed index packs and
+  manifests rather than independently rebuilding every replica.
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
-- S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible providers are rejected.
-- Framework-native Python and TypeScript capture SDKs are planned but not included yet.
+- S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible
+  providers are rejected. Native GCS writes use `ifGenerationMatch=0`.
+- Framework adapters and opt-in background processors are not included yet;
+  the native SDKs currently provide direct durable capture and explicit batch
+  segments.
 - Runtime durably journals run state and checkpoints but does not yet schedule
   workers, wake timers, deliver signals, fence leases, or execute user code.
 

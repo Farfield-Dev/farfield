@@ -1,8 +1,37 @@
 # Changelog
 
-All notable changes to Farfield will be documented here. The project follows semantic versioning after `v1.0.0`; pre-1.0 releases may change APIs and persisted schemas only with explicit migration notes.
+All notable changes to Farfield will be documented here. The project follows
+semantic versioning after `v1.0.0`; pre-1.0 releases may make documented
+breaking protocol changes.
 
 ## Unreleased
+
+### Added
+
+- Native Google Cloud Storage support using Application Default Credentials and
+  atomic `ifGenerationMatch=0` creation, plus an opt-in live conformance suite.
+- A live Anthropic web-research agent example with retained GCS-backed traces,
+  durable run checkpoints, and a query helper.
+- Real-server Go and TypeScript SDK smoke examples.
+- Native Python, TypeScript, and Go SDKs with durable capture, explicit batch
+  segments, conversation context, privacy hooks, typed errors, History reads,
+  and Runtime journal access.
+- Exact-body retry behavior with stable client-generated IDs and timestamps.
+- SDK package, type, lint, and behavioral checks in CI.
+- Embedded BM25 full-text search with phrase and prefix syntax, exact metadata
+  and tag filters, snippets, automatic repair, HTTP/CLI access, and native SDK
+  methods.
+
+### Changed
+
+- History now stores every single and batch append as an immutable segment
+  under the full conversation hash. Timelines list only the selected
+  conversation and fetch segments and external blobs concurrently.
+- Removed the standalone record-plus-blob History format and its compatibility
+  reader before the first public release.
+- Conversation timelines reuse already-verified segment objects, avoiding one
+  object-store read per inline record.
+- The embedded inspector summarizes and collapses large provider payloads.
 
 ## 0.1.0-alpha.1 - 2026-08-19
 

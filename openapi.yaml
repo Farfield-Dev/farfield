@@ -51,7 +51,9 @@ paths:
         - {in: query, name: agent, schema: {type: string}}
         - {in: query, name: tool, schema: {type: string}}
         - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: tag, schema: {type: array, items: {type: string}}, style: form, explode: true, description: "Repeatable exact key=value tag filter"}
         - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: until, schema: {type: string, format: date-time}}
         - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
       responses:
         "200":
@@ -90,6 +92,30 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/Segment"}
         "409": {$ref: "#/components/responses/Error"}
+  /v1/history/search:
+    get:
+      summary: Search indexed History content with exact metadata filters
+      operationId: searchHistory
+      parameters:
+        - {in: query, name: q, schema: {type: string}, description: "Bare terms are ANDed; quotes form phrases and a trailing * performs prefix matching"}
+        - {in: query, name: conversation_id, schema: {type: string}}
+        - {in: query, name: trace_id, schema: {type: string}}
+        - {in: query, name: kind, schema: {type: string}}
+        - {in: query, name: agent, schema: {type: string}}
+        - {in: query, name: tool, schema: {type: string}}
+        - {in: query, name: status, schema: {type: string}}
+        - {in: query, name: tag, schema: {type: array, items: {type: string}}, style: form, explode: true, description: "Repeatable exact key=value tag filter"}
+        - {in: query, name: since, schema: {type: string, format: date-time}}
+        - {in: query, name: until, schema: {type: string, format: date-time}}
+        - {in: query, name: limit, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
+      responses:
+        "200":
+          description: Ranked search hits from the disposable local index
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SearchResult"}
+        "400": {$ref: "#/components/responses/Error"}
+        "503": {$ref: "#/components/responses/Error"}
   /v1/history/conversations:
     get:
       summary: List conversation summaries
@@ -238,12 +264,12 @@ components:
       additionalProperties: false
     Segment:
       type: object
-      required: [schema_version, id, conversation_id, shard, created_at, entries, segment_sha256]
+      required: [schema_version, id, conversation_id, conversation_hash, created_at, entries, segment_sha256]
       properties:
         schema_version: {const: farfield.history.segment.v1}
         id: {type: string}
         conversation_id: {type: string}
-        shard: {type: string, pattern: "^[0-9a-f]{2}$"}
+        conversation_hash: {type: string, pattern: "^[0-9a-f]{64}$"}
         created_at: {type: string, format: date-time}
         entries:
           type: array
@@ -253,8 +279,7 @@ components:
       type: object
       required: [schema_version, id, conversation_id, kind, occurred_at, recorded_at, tags, content, record_sha256]
       properties:
-        schema_version:
-          enum: [farfield.history.record.v1, farfield.history.record.v2]
+        schema_version: {const: farfield.history.record.v2}
         id: {type: string}
         conversation_id: {type: string}
         kind: {type: string}
@@ -302,6 +327,22 @@ components:
         last_seen_at: {type: string, format: date-time}
         agents: {type: array, items: {type: string}}
         kinds: {type: array, items: {type: string}}
+    SearchHit:
+      type: object
+      required: [record, score]
+      properties:
+        record: {$ref: "#/components/schemas/Record"}
+        score: {type: number, minimum: 0}
+        snippet: {type: string}
+    SearchResult:
+      type: object
+      required: [hits, total, took_ms, indexed_records, index_updated_at]
+      properties:
+        hits: {type: array, items: {$ref: "#/components/schemas/SearchHit"}}
+        total: {type: integer, minimum: 0}
+        took_ms: {type: number, minimum: 0}
+        indexed_records: {type: integer, minimum: 0}
+        index_updated_at: {type: string, format: date-time}
     RuntimeStatus:
       type: string
       enum: [queued, running, waiting, sleeping, completed, failed, cancelled, ambiguous]

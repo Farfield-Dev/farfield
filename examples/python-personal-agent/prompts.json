@@ -1,0 +1,14 @@
+[
+  {
+    "name": "long-horizon-agent-landscape",
+    "prompt": "Using current public web sources, research the most important developments in long-horizon AI agents and durable agent execution over the past 12 months. Return five concise findings with dates and source citations, then explain the concrete implications for an open-source, object-storage-native agent history and runtime platform. Distinguish verified facts from your inferences and avoid repeating unsupported vendor marketing."
+  },
+  {
+    "name": "gcs-agent-journal-design",
+    "prompt": "Investigate official Google Cloud documentation and credible engineering sources to answer this design question: which guarantees and failure modes matter for an append-only agent history and run journal that uses Google Cloud Storage as its durable source of truth? Cover conditional creation, consistency, hot-key/request scaling, latency, retries, and cost. End with specific engineering rules and identify anything that still requires our own benchmark. Include source citations."
+  },
+  {
+    "name": "open-source-launch-plan",
+    "prompt": "Act as a pragmatic open-source launch advisor. Farfield makes object storage the durable source of truth for agent history and execution, and currently has a Go server/CLI plus Python, TypeScript, and Go SDKs. Using current ecosystem evidence, produce a focused seven-day announcement-readiness plan. Prioritize what a developer must be able to try and verify, what should explicitly remain out of scope, and which proof points would make the project credible. Include source citations for current ecosystem claims."
+  }
+]

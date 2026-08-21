@@ -1,7 +1,15 @@
 .DS_Store
+.env
+.env.*
+!.env.example
+.venv/
 .farfield/
+.ruff_cache/
+__pycache__/
+*.py[cod]
 .idea/
 .vscode/
 bin/
 coverage.out
 dist/
+node_modules/

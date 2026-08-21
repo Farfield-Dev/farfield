@@ -63,22 +63,22 @@ func TestS3StoreContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	created, err := store.PutIfAbsent(ctx, "records/v1/a.json", []byte("one"), storage.PutOptions{ContentType: "application/json"})
+	created, err := store.PutIfAbsent(ctx, "conformance/objects/a.json", []byte("one"), storage.PutOptions{ContentType: "application/json"})
 	if err != nil || !created {
 		t.Fatalf("first PutIfAbsent = %v, %v", created, err)
 	}
-	created, err = store.PutIfAbsent(ctx, "records/v1/a.json", []byte("one"), storage.PutOptions{})
+	created, err = store.PutIfAbsent(ctx, "conformance/objects/a.json", []byte("one"), storage.PutOptions{})
 	if err != nil || created {
 		t.Fatalf("idempotent PutIfAbsent = %v, %v", created, err)
 	}
-	if _, err := store.PutIfAbsent(ctx, "records/v1/a.json", []byte("two"), storage.PutOptions{}); err == nil {
+	if _, err := store.PutIfAbsent(ctx, "conformance/objects/a.json", []byte("two"), storage.PutOptions{}); err == nil {
 		t.Fatal("conflicting PutIfAbsent succeeded")
 	}
-	keys, err := store.List(ctx, "records/v1")
+	keys, err := store.List(ctx, "conformance/objects")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(keys) != 1 || keys[0] != "records/v1/a.json" {
+	if len(keys) != 1 || keys[0] != "conformance/objects/a.json" {
 		t.Fatalf("List = %#v", keys)
 	}
 }

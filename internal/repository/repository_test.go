@@ -14,10 +14,8 @@ import (
 func TestPublicJSONFilesAreValid(t *testing.T) {
 	root := filepath.Join("..", "..")
 	for _, path := range []string{
-		"protocol/history/v1/schema.json",
-		"protocol/history/v1/fixtures/content.json",
-		"protocol/history/v1/fixtures/record.json",
 		"protocol/history/v2/schema.json",
+		"protocol/history/v2/fixtures/segment.json",
 		"protocol/runtime/v1/schema.json",
 	} {
 		data, err := os.ReadFile(filepath.Join(root, path))
@@ -62,11 +60,20 @@ func TestOpenAPIListsImplementedRoutes(t *testing.T) {
 func TestRelativeMarkdownLinksResolve(t *testing.T) {
 	root := filepath.Join("..", "..")
 	pattern := regexp.MustCompile(`\[[^]]+\]\(([^)]+)\)`)
+	generatedDirectories := map[string]bool{
+		".farfield":    true,
+		".git":         true,
+		".ruff_cache":  true,
+		".venv":        true,
+		"__pycache__":  true,
+		"dist":         true,
+		"node_modules": true,
+	}
 	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".farfield") {
+		if entry.IsDir() && generatedDirectories[entry.Name()] {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || filepath.Ext(path) != ".md" {

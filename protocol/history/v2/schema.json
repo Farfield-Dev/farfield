@@ -7,7 +7,7 @@
     "schema_version",
     "id",
     "conversation_id",
-    "shard",
+    "conversation_hash",
     "created_at",
     "entries",
     "segment_sha256"
@@ -16,7 +16,7 @@
     "schema_version": {"const": "farfield.history.segment.v1"},
     "id": {"type": "string", "minLength": 1, "maxLength": 255},
     "conversation_id": {"type": "string", "minLength": 1, "maxLength": 255},
-    "shard": {"type": "string", "pattern": "^[0-9a-f]{2}$"},
+    "conversation_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "created_at": {"type": "string", "format": "date-time"},
     "entries": {
       "type": "array",
@@ -79,7 +79,7 @@
             "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
             "size": {"type": "integer", "minimum": 0},
             "media_type": {"const": "application/json"},
-            "key": {"type": "string", "pattern": "^segments/v1/shards/[0-9a-f]{2}/[0-9a-f]{64}\\.json$"},
+            "key": {"type": "string", "pattern": "^history/v2/conversations/[0-9a-f]{64}/segments/[0-9a-f]{64}\\.json$"},
             "storage": {"const": "segment"},
             "entry_index": {"type": "integer", "minimum": 0}
           },
@@ -92,7 +92,7 @@
             "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
             "size": {"type": "integer", "minimum": 0},
             "media_type": {"const": "application/json"},
-            "key": {"type": "string", "pattern": "^blobs/v1/sha256/[0-9a-f]{2}/[0-9a-f]{62}$"},
+            "key": {"type": "string", "pattern": "^history/v2/blobs/sha256/[0-9a-f]{2}/[0-9a-f]{62}$"},
             "storage": {"const": "blob"}
           },
           "additionalProperties": false

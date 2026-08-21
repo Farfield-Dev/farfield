@@ -14,26 +14,26 @@ func TestLocalStoreContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	created, err := store.PutIfAbsent(ctx, "records/v1/a.json", []byte("one"), PutOptions{})
+	created, err := store.PutIfAbsent(ctx, "conformance/objects/a.json", []byte("one"), PutOptions{})
 	if err != nil || !created {
 		t.Fatalf("first PutIfAbsent = %v, %v", created, err)
 	}
-	created, err = store.PutIfAbsent(ctx, "records/v1/a.json", []byte("one"), PutOptions{})
+	created, err = store.PutIfAbsent(ctx, "conformance/objects/a.json", []byte("one"), PutOptions{})
 	if err != nil || created {
 		t.Fatalf("idempotent PutIfAbsent = %v, %v", created, err)
 	}
-	if _, err := store.PutIfAbsent(ctx, "records/v1/a.json", []byte("two"), PutOptions{}); !errors.Is(err, ErrConflict) {
+	if _, err := store.PutIfAbsent(ctx, "conformance/objects/a.json", []byte("two"), PutOptions{}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("conflicting PutIfAbsent error = %v", err)
 	}
-	data, err := store.Get(ctx, "records/v1/a.json")
+	data, err := store.Get(ctx, "conformance/objects/a.json")
 	if err != nil || string(data) != "one" {
 		t.Fatalf("Get = %q, %v", data, err)
 	}
-	keys, err := store.List(ctx, "records/v1")
+	keys, err := store.List(ctx, "conformance/objects")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(keys, []string{"records/v1/a.json"}) {
+	if !reflect.DeepEqual(keys, []string{"conformance/objects/a.json"}) {
 		t.Fatalf("List = %#v", keys)
 	}
 }

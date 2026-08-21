@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -16,37 +17,12 @@ type Query struct {
 	Status         string
 	Tags           map[string]string
 	Since          *time.Time
+	Until          *time.Time
 	Limit          int
 }
 
 func (service *Service) Query(ctx context.Context, query Query) ([]Record, error) {
-	segmentPrefix := "segments/v1/shards"
-	if query.ConversationID != "" {
-		segmentPrefix += "/" + segmentShard(query.ConversationID)
-	}
-	records, err := service.listRecords(ctx, segmentPrefix)
-	if err != nil {
-		return nil, err
-	}
-	limit := query.Limit
-	if limit == 0 {
-		limit = 100
-	}
-	capacity := len(records)
-	if limit > 0 {
-		capacity = min(capacity, limit)
-	}
-	result := make([]Record, 0, capacity)
-	for _, record := range records {
-		if !matches(record, query) {
-			continue
-		}
-		result = append(result, record)
-		if limit > 0 && len(result) == limit {
-			break
-		}
-	}
-	return result, nil
+	return service.search.query(ctx, query)
 }
 
 type Entry struct {
@@ -55,20 +31,47 @@ type Entry struct {
 }
 
 func (service *Service) Timeline(ctx context.Context, conversationID string) ([]Entry, error) {
-	records, err := service.Query(ctx, Query{ConversationID: conversationID, Limit: -1})
+	records, segments, err := service.listRecordsWithSegments(ctx, conversationSegmentPrefix(conversationID))
 	if err != nil {
 		return nil, err
 	}
-	if len(records) == 0 {
-		return nil, failure("FH_NOT_FOUND", "conversation was not found", nil)
+	entries := make([]Entry, len(records))
+	jobs := make(chan int)
+	workers := min(segmentReadConcurrency, len(records))
+	var wait sync.WaitGroup
+	var firstError error
+	var errorOnce sync.Once
+	for range workers {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			for index := range jobs {
+				record := records[index]
+				if record.ConversationID != conversationID {
+					errorOnce.Do(func() {
+						firstError = failure("FH_SEGMENT_CORRUPT", "conversation prefix contains a record for another conversation", nil)
+					})
+					continue
+				}
+				content, readErr := service.readContent(ctx, record, segments)
+				if readErr != nil {
+					errorOnce.Do(func() { firstError = readErr })
+					continue
+				}
+				entries[index] = Entry{Record: record, Content: json.RawMessage(content)}
+			}
+		}()
 	}
-	entries := make([]Entry, 0, len(records))
-	for _, record := range records {
-		content, err := service.ReadContent(ctx, record)
-		if err != nil {
-			return nil, err
-		}
-		entries = append(entries, Entry{Record: record, Content: json.RawMessage(content)})
+	for index := range records {
+		jobs <- index
+	}
+	close(jobs)
+	wait.Wait()
+	if firstError != nil {
+		return nil, firstError
+	}
+	if len(entries) == 0 {
+		return nil, failure("FH_NOT_FOUND", "conversation was not found", nil)
 	}
 	return entries, nil
 }
@@ -83,10 +86,10 @@ type Conversation struct {
 }
 
 func (service *Service) Conversations(ctx context.Context, limit int) ([]Conversation, error) {
-	records, err := service.ListRecords(ctx)
-	if err != nil {
-		return nil, err
-	}
+	return service.projection.conversations(ctx, limit)
+}
+
+func aggregateConversations(records []Record, limit int) []Conversation {
 	type aggregate struct {
 		conversation Conversation
 		agents       map[string]struct{}
@@ -132,7 +135,7 @@ func (service *Service) Conversations(ctx context.Context, limit int) ([]Convers
 	if limit > 0 && len(result) > limit {
 		result = result[:limit]
 	}
-	return result, nil
+	return result
 }
 
 func matches(record Record, query Query) bool {

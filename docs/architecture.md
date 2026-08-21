@@ -6,10 +6,10 @@ Farfield has one Go core and multiple native SDK edges.
 
 Object storage contains authoritative immutable records, payloads, run events, checkpoints, and portable corpora. Query indexes, caches, dashboards, labels, cost aggregates, and evaluation results are derived views unless their protocol explicitly states otherwise.
 
-History v1 commits payload before record. Segmented History commits any
-external blobs before the segment that references them. A crash may therefore
-leave an orphan payload, which verification reports. It must never expose a
-committed record pointing to content that was not durably acknowledged.
+History commits any external blobs before the conversation-local segment that
+references them. A crash may therefore leave an orphan payload, which
+verification reports. It must never expose a committed record pointing to
+content that was not durably acknowledged.
 
 ## Identity
 

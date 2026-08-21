@@ -8,3 +8,11 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  - package-ecosystem: npm
+    directory: /sdk/typescript
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /sdk/python
+    schedule:
+      interval: monthly

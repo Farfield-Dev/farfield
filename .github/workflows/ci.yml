@@ -20,9 +20,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
       - run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: TypeScript SDK
+        run: npm ci --prefix sdk/typescript && npm run check --prefix sdk/typescript
+      - name: Python SDK
+        run: |
+          python -m pip install -e './sdk/python[dev]'
+          ruff check sdk/python
+          ruff format --check sdk/python
+          ruff check examples/python-personal-agent
+          ruff format --check examples/python-personal-agent
+          python -m py_compile examples/python-personal-agent/*.py
+          pyright -p sdk/python
+          python -W error::ResourceWarning -m unittest discover -s sdk/python/tests -v
+          python -m build sdk/python
       - run: npx --yes @redocly/cli@2.46.2 lint openapi.yaml
 
   s3-conformance:

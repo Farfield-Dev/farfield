@@ -1,0 +1,49 @@
+{
+  "name": "@farfield/sdk",
+  "version": "0.1.0-alpha.1",
+  "description": "Durable agent history and execution, stored in object storage you control",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "check": "npm run build && npm run typecheck:test && npm test",
+    "prepack": "npm run check"
+  },
+  "keywords": [
+    "agents",
+    "observability",
+    "durable-execution",
+    "s3"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Farfield-Dev/farfield.git",
+    "directory": "sdk/typescript"
+  },
+  "bugs": "https://github.com/Farfield-Dev/farfield/issues",
+  "homepage": "https://github.com/Farfield-Dev/farfield/tree/main/sdk/typescript",
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

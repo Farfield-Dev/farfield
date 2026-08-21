@@ -8,10 +8,14 @@ import (
 	"strings"
 
 	"github.com/Farfield-Dev/farfield/storage"
+	"github.com/Farfield-Dev/farfield/storage/gcsstore"
 	"github.com/Farfield-Dev/farfield/storage/s3store"
 )
 
 func Open(ctx context.Context, uri string) (storage.Store, error) {
+	if strings.HasPrefix(uri, "gs://") {
+		return gcsstore.Open(ctx, uri)
+	}
 	if strings.HasPrefix(uri, "s3://") {
 		pathStyle, err := strconv.ParseBool(valueOr(os.Getenv("FARFIELD_S3_PATH_STYLE"), "false"))
 		if err != nil {
