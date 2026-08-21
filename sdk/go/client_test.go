@@ -136,12 +136,17 @@ func TestHistoryReadSurface(t *testing.T) {
 		case "/v1/health":
 			_, _ = writer.Write([]byte(`{"ok":true,"service":"farfield"}`))
 		case "/v1/history/records":
-			if request.URL.Query().Get("conversation_id") != "conv_read" || request.URL.Query().Get("limit") != "25" {
+			if request.URL.Query().Get("conversation_id") != "conv_read" || request.URL.Query().Get("limit") != "25" || request.URL.Query().Get("tag") != "env=test" {
 				t.Errorf("query = %s", request.URL.RawQuery)
 			}
 			_, _ = writer.Write([]byte(`[{"id":"rec_read","conversation_id":"conv_read","kind":"message.user"}]`))
 		case "/v1/history/records/rec_read":
 			_, _ = writer.Write([]byte(`{"record":{"id":"rec_read","conversation_id":"conv_read","kind":"message.user"},"content":{"text":"hello"}}`))
+		case "/v1/history/search":
+			if request.URL.Query().Get("q") != "hello world" || request.URL.Query().Get("tag") != "env=test" {
+				t.Errorf("search query = %s", request.URL.RawQuery)
+			}
+			_, _ = writer.Write([]byte(`{"hits":[{"record":{"id":"rec_read","conversation_id":"conv_read","kind":"message.user"},"score":1.5,"snippet":"hello world"}],"total":1,"took_ms":0.2,"indexed_records":1,"index_updated_at":"2026-01-01T00:00:00Z"}`))
 		case "/v1/history/conversations":
 			if request.URL.Query().Get("limit") != "10" {
 				t.Errorf("query = %s", request.URL.RawQuery)
@@ -163,9 +168,13 @@ func TestHistoryReadSurface(t *testing.T) {
 	if err := client.Health(ctx); err != nil {
 		t.Fatal(err)
 	}
-	records, err := client.Query(ctx, HistoryQuery{ConversationID: "conv_read", Limit: 25})
+	records, err := client.Query(ctx, HistoryQuery{ConversationID: "conv_read", Tags: map[string]string{"env": "test"}, Limit: 25})
 	if err != nil || len(records) != 1 || records[0].ID != "rec_read" {
 		t.Fatalf("records = %#v, err = %v", records, err)
+	}
+	search, err := client.Search(ctx, SearchQuery{Text: "hello world", Tags: map[string]string{"env": "test"}, Limit: 25})
+	if err != nil || search.Total != 1 || search.Hits[0].Record.ID != "rec_read" {
+		t.Fatalf("search = %#v, err = %v", search, err)
 	}
 	entry, err := client.GetRecord(ctx, "rec_read")
 	if err != nil || entry.Record.ID != "rec_read" || string(entry.Content) != `{"text":"hello"}` {

@@ -55,10 +55,11 @@ return the committed bytes; different reuse is an idempotency conflict.
 
 ## Read tradeoffs
 
-Conversation timelines are optimized. Global record scans, record-ID-only
-lookup, and trace filtering still enumerate conversation segments. These are
-secondary paths today and should receive explicit rebuildable locator
-projections rather than compromising conversation locality.
+Conversation timelines are optimized. Structured and trace filters use the
+disposable index defined in design 0006. Authoritative list-all and
+record-ID-only lookup still enumerate conversation segments; these secondary
+paths should receive explicit rebuildable locator projections rather than
+compromising conversation locality.
 
 When one conversation accumulates enough segments that its exact-prefix LIST
 or parallel GET fanout becomes material, immutable time-range packs can compact

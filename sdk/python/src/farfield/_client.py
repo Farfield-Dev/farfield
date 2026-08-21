@@ -27,6 +27,7 @@ from ._models import (
     Run,
     RuntimeEvent,
     Scope,
+    SearchResult,
     Segment,
 )
 
@@ -154,7 +155,9 @@ class Farfield:
         agent: str | None = None,
         tool: str | None = None,
         status: str | None = None,
+        tags: Mapping[str, str] | None = None,
         since: datetime | None = None,
+        until: datetime | None = None,
         limit: int = 100,
     ) -> tuple[Record, ...]:
         if not 1 <= limit <= 1000:
@@ -176,13 +179,60 @@ class Farfield:
                 "occurred_at"
             ]
             parameters["since"] = str(timestamp)
-        parameters["limit"] = limit
-        values = _list(self._request("GET", "/v1/history/records?" + urlencode(parameters)))
+        if until is not None:
+            timestamp = Event(kind="query", content=None, occurred_at=until).to_payload()[
+                "occurred_at"
+            ]
+            parameters["until"] = str(timestamp)
+        encoded: list[tuple[str, str | int]] = list(parameters.items())
+        encoded.extend(("tag", f"{key}={value}") for key, value in sorted((tags or {}).items()))
+        encoded.append(("limit", limit))
+        values = _list(self._request("GET", "/v1/history/records?" + urlencode(encoded)))
         return tuple(Record.from_payload(_mapping(value)) for value in values)
 
     def get_record(self, record_id: str) -> Entry:
         path = f"/v1/history/records/{quote(record_id, safe='')}"
         return Entry.from_payload(_mapping(self._request("GET", path)))
+
+    def search(
+        self,
+        text: str = "",
+        *,
+        conversation_id: str | None = None,
+        trace_id: str | None = None,
+        kind: str | None = None,
+        agent: str | None = None,
+        tool: str | None = None,
+        status: str | None = None,
+        tags: Mapping[str, str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        limit: int = 100,
+    ) -> SearchResult:
+        if not 1 <= limit <= 1000:
+            raise ValueError("farfield: limit must be between 1 and 1000")
+        parameters: list[tuple[str, str | int]] = [("limit", limit)]
+        for key, value in {
+            "q": text,
+            "conversation_id": conversation_id,
+            "trace_id": trace_id,
+            "kind": kind,
+            "agent": agent,
+            "tool": tool,
+            "status": status,
+        }.items():
+            if value:
+                parameters.append((key, value))
+        for key, value in sorted((tags or {}).items()):
+            parameters.append(("tag", f"{key}={value}"))
+        for key, value in (("since", since), ("until", until)):
+            if value is not None:
+                timestamp = Event(kind="search", content=None, occurred_at=value).to_payload()[
+                    "occurred_at"
+                ]
+                parameters.append((key, str(timestamp)))
+        payload = _mapping(self._request("GET", "/v1/history/search?" + urlencode(parameters)))
+        return SearchResult.from_payload(payload)
 
     def conversations(self, *, limit: int = 100) -> tuple[ConversationSummary, ...]:
         if not 1 <= limit <= 1000:
@@ -434,6 +484,9 @@ class AsyncFarfield:
 
     async def get_record(self, record_id: str) -> Entry:
         return await asyncio.to_thread(self._sync.get_record, record_id)
+
+    async def search(self, text: str = "", **filters: Any) -> SearchResult:
+        return await asyncio.to_thread(self._sync.search, text, **filters)
 
     async def conversations(self, *, limit: int = 100) -> tuple[ConversationSummary, ...]:
         return await asyncio.to_thread(self._sync.conversations, limit=limit)

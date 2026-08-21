@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -187,11 +188,58 @@ func (client *Client) Query(ctx context.Context, query HistoryQuery) ([]Record, 
 	if query.Since != nil {
 		parameters.Set("since", query.Since.UTC().Format(time.RFC3339Nano))
 	}
+	if query.Until != nil {
+		parameters.Set("until", query.Until.UTC().Format(time.RFC3339Nano))
+	}
+	queryKeys := make([]string, 0, len(query.Tags))
+	for key := range query.Tags {
+		queryKeys = append(queryKeys, key)
+	}
+	sort.Strings(queryKeys)
+	for _, key := range queryKeys {
+		parameters.Add("tag", key+"="+query.Tags[key])
+	}
 	var records []Record
 	if err := client.doJSON(ctx, http.MethodGet, "/v1/history/records?"+parameters.Encode(), nil, &records); err != nil {
 		return nil, err
 	}
 	return records, nil
+}
+
+func (client *Client) Search(ctx context.Context, query SearchQuery) (SearchResult, error) {
+	if query.Limit == 0 {
+		query.Limit = 100
+	}
+	if query.Limit < 1 || query.Limit > 1000 {
+		return SearchResult{}, errors.New("farfield: limit must be between 1 and 1000")
+	}
+	parameters := url.Values{"limit": []string{strconv.Itoa(query.Limit)}}
+	addParameter(parameters, "q", query.Text)
+	addParameter(parameters, "conversation_id", query.ConversationID)
+	addParameter(parameters, "trace_id", query.TraceID)
+	addParameter(parameters, "kind", query.Kind)
+	addParameter(parameters, "agent", query.Agent)
+	addParameter(parameters, "tool", query.Tool)
+	addParameter(parameters, "status", query.Status)
+	if query.Since != nil {
+		parameters.Set("since", query.Since.UTC().Format(time.RFC3339Nano))
+	}
+	if query.Until != nil {
+		parameters.Set("until", query.Until.UTC().Format(time.RFC3339Nano))
+	}
+	keys := make([]string, 0, len(query.Tags))
+	for key := range query.Tags {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		parameters.Add("tag", key+"="+query.Tags[key])
+	}
+	var result SearchResult
+	if err := client.doJSON(ctx, http.MethodGet, "/v1/history/search?"+parameters.Encode(), nil, &result); err != nil {
+		return SearchResult{}, err
+	}
+	return result, nil
 }
 
 func (client *Client) GetRecord(ctx context.Context, recordID string) (Entry, error) {

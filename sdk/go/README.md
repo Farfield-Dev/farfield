@@ -39,6 +39,10 @@ Read the data back without dropping down to raw HTTP:
 
 ```go
 timeline, err := client.Timeline(ctx, "conv_123")
+search, err := client.Search(ctx, farfield.SearchQuery{
+	Text: `"order shipped" lookup*`, Agent: "support-agent",
+	Tags: map[string]string{"env": "prod"},
+})
 records, err := client.Query(ctx, farfield.HistoryQuery{
     Agent: "researcher",
     Kind:  "tool.result",

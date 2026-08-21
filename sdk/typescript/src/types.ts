@@ -94,8 +94,38 @@ export interface Query {
   agent?: string;
   tool?: string;
   status?: string;
+  tags?: Record<string, string>;
   since?: Date | string;
+  until?: Date | string;
   limit?: number;
+}
+
+export interface SearchQuery {
+  text?: string;
+  conversationId?: string;
+  traceId?: string;
+  kind?: string;
+  agent?: string;
+  tool?: string;
+  status?: string;
+  tags?: Record<string, string>;
+  since?: Date | string;
+  until?: Date | string;
+  limit?: number;
+}
+
+export interface SearchHit {
+  record: HistoryRecord;
+  score: number;
+  snippet?: string;
+}
+
+export interface SearchResult {
+  hits: SearchHit[];
+  total: number;
+  took_ms: number;
+  indexed_records: number;
+  index_updated_at: string;
 }
 
 export type RunStatus =

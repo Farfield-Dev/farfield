@@ -42,6 +42,23 @@ class _Handler(BaseHTTPRequestHandler):
                     "content": {"text": "hello"},
                 },
             )
+        elif path == "/v1/history/search":
+            self._json(
+                200,
+                {
+                    "hits": [
+                        {
+                            "record": _record({"id": "rec_query", "conversation_id": "conv_query"}),
+                            "score": 1.5,
+                            "snippet": "hello world",
+                        }
+                    ],
+                    "total": 1,
+                    "took_ms": 0.2,
+                    "indexed_records": 1,
+                    "index_updated_at": "2026-01-01T00:00:00Z",
+                },
+            )
         elif path == "/v1/history/conversations":
             self._json(
                 200,
@@ -225,11 +242,16 @@ class FarfieldTests(unittest.TestCase):
         self.assertEqual([], handler.requests)
 
     def test_read_surface_and_runtime(self) -> None:
-        with _server() as (endpoint, _):
+        with _server() as (endpoint, handler):
             client = Farfield(endpoint=endpoint)
             self.assertTrue(client.health())
             self.assertEqual(
-                "rec_query", client.query(conversation_id="conv_query", limit=10)[0].id
+                "rec_query",
+                client.query(conversation_id="conv_query", tags={"env": "test"}, limit=10)[0].id,
+            )
+            self.assertTrue(any("tag=env%3Dtest" in path for _, path, _ in handler.requests))
+            self.assertEqual(
+                "rec_query", client.search("hello", tags={"env": "test"}).hits[0].record.id
             )
             content = client.get_record("rec_query").content
             assert isinstance(content, dict)

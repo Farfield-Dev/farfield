@@ -24,6 +24,8 @@ type Service struct {
 	maxSegmentRecords     int
 	now                   func() time.Time
 	projection            *conversationProjection
+	search                *searchProjection
+	searchCachePath       string
 }
 
 type Option func(*Service)
@@ -48,6 +50,13 @@ func withClock(clock func() time.Time) Option {
 	return func(service *Service) { service.now = clock }
 }
 
+// WithSearchCache stores the disposable full-text index at path. The cache is
+// never authoritative and is rebuilt from immutable History when missing or
+// corrupt. An empty path keeps the index in memory only.
+func WithSearchCache(path string) Option {
+	return func(service *Service) { service.searchCachePath = path }
+}
+
 func New(store storage.Store, options ...Option) (*Service, error) {
 	service := &Service{
 		store:                 store,
@@ -64,6 +73,7 @@ func New(store storage.Store, options ...Option) (*Service, error) {
 		return nil, failure("FH_INVALID_CONFIGURATION", "store, clock, and positive content and segment limits are required", nil)
 	}
 	service.projection = newConversationProjection(store, service.now)
+	service.search = newSearchProjection(service, service.searchCachePath, service.now)
 	return service, nil
 }
 

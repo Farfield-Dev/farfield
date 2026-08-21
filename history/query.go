@@ -17,37 +17,12 @@ type Query struct {
 	Status         string
 	Tags           map[string]string
 	Since          *time.Time
+	Until          *time.Time
 	Limit          int
 }
 
 func (service *Service) Query(ctx context.Context, query Query) ([]Record, error) {
-	segmentPrefix := historySegmentsPrefix
-	if query.ConversationID != "" {
-		segmentPrefix = conversationSegmentPrefix(query.ConversationID)
-	}
-	records, err := service.listRecords(ctx, segmentPrefix)
-	if err != nil {
-		return nil, err
-	}
-	limit := query.Limit
-	if limit == 0 {
-		limit = 100
-	}
-	capacity := len(records)
-	if limit > 0 {
-		capacity = min(capacity, limit)
-	}
-	result := make([]Record, 0, capacity)
-	for _, record := range records {
-		if !matches(record, query) {
-			continue
-		}
-		result = append(result, record)
-		if limit > 0 && len(result) == limit {
-			break
-		}
-	}
-	return result, nil
+	return service.search.query(ctx, query)
 }
 
 type Entry struct {

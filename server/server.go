@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Farfield-Dev/farfield/history"
@@ -50,6 +51,7 @@ func (server *Server) routes() {
 	server.mux.HandleFunc("POST /v1/history/segments", server.appendSegment)
 	server.mux.HandleFunc("GET /v1/history/records", server.queryRecords)
 	server.mux.HandleFunc("GET /v1/history/records/{recordID}", server.getRecord)
+	server.mux.HandleFunc("GET /v1/history/search", server.searchHistory)
 	server.mux.HandleFunc("GET /v1/history/conversations", server.conversations)
 	server.mux.HandleFunc("GET /v1/history/conversations/{conversationID}/timeline", server.timeline)
 	if server.runtime != nil {
@@ -200,13 +202,14 @@ func (server *Server) queryRecords(writer http.ResponseWriter, request *http.Req
 		Status:         request.URL.Query().Get("status"),
 		Limit:          limit,
 	}
-	if since := request.URL.Query().Get("since"); since != "" {
-		value, err := time.Parse(time.RFC3339Nano, since)
-		if err != nil {
-			writeError(writer, http.StatusBadRequest, "FH_INVALID_REQUEST", "since must be an RFC3339 timestamp", err)
+	query.Tags, ok = parseTagFilters(writer, request)
+	if !ok {
+		return
+	}
+	for parameter, target := range map[string]**time.Time{"since": &query.Since, "until": &query.Until} {
+		if !parseTimeFilter(writer, request, parameter, target) {
 			return
 		}
-		query.Since = &value
 	}
 	records, err := server.history.Query(request.Context(), query)
 	if err != nil {
@@ -214,6 +217,61 @@ func (server *Server) queryRecords(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(writer, http.StatusOK, records)
+}
+
+func (server *Server) searchHistory(writer http.ResponseWriter, request *http.Request) {
+	limit, ok := parseLimit(writer, request)
+	if !ok {
+		return
+	}
+	query := history.SearchQuery{
+		Text: request.URL.Query().Get("q"), ConversationID: request.URL.Query().Get("conversation_id"),
+		TraceID: request.URL.Query().Get("trace_id"), Kind: request.URL.Query().Get("kind"),
+		Agent: request.URL.Query().Get("agent"), Tool: request.URL.Query().Get("tool"),
+		Status: request.URL.Query().Get("status"), Limit: limit, Tags: map[string]string{},
+	}
+	query.Tags, ok = parseTagFilters(writer, request)
+	if !ok {
+		return
+	}
+	for parameter, target := range map[string]**time.Time{"since": &query.Since, "until": &query.Until} {
+		if !parseTimeFilter(writer, request, parameter, target) {
+			return
+		}
+	}
+	result, err := server.history.Search(request.Context(), query)
+	if err != nil {
+		writeDomainError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func parseTagFilters(writer http.ResponseWriter, request *http.Request) (map[string]string, bool) {
+	values := map[string]string{}
+	for _, value := range request.URL.Query()["tag"] {
+		key, tagValue, found := strings.Cut(value, "=")
+		if !found || key == "" {
+			writeError(writer, http.StatusBadRequest, "FH_INVALID_REQUEST", "tag must use key=value syntax", nil)
+			return nil, false
+		}
+		values[key] = tagValue
+	}
+	return values, true
+}
+
+func parseTimeFilter(writer http.ResponseWriter, request *http.Request, parameter string, target **time.Time) bool {
+	value := request.URL.Query().Get(parameter)
+	if value == "" {
+		return true
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "FH_INVALID_REQUEST", parameter+" must be an RFC3339 timestamp", err)
+		return false
+	}
+	*target = &parsed
+	return true
 }
 
 func (server *Server) conversations(writer http.ResponseWriter, request *http.Request) {
@@ -398,12 +456,14 @@ func writeDomainError(writer http.ResponseWriter, err error) {
 		status = http.StatusConflict
 	case "FH_CONTENT_TOO_LARGE", "FH_SEGMENT_TOO_LARGE":
 		status = http.StatusRequestEntityTooLarge
-	case "FH_INVALID_JSON", "FH_INVALID_RECORD", "FH_INVALID_BATCH", "FH_INVALID_REQUEST":
+	case "FH_INVALID_JSON", "FH_INVALID_RECORD", "FH_INVALID_BATCH", "FH_INVALID_REQUEST", "FH_INVALID_SEARCH", "FH_SEARCH_PREFIX_TOO_BROAD":
 		status = http.StatusBadRequest
 	case "FH_DUPLICATE_RECORD":
 		status = http.StatusConflict
 	case "FH_RECORD_CORRUPT", "FH_SEGMENT_CORRUPT", "FH_BLOB_CORRUPT", "FH_BLOB_MISSING":
 		status = http.StatusInternalServerError
+	case "FH_SEARCH_INDEX_FAILED":
+		status = http.StatusServiceUnavailable
 	}
 	writeError(writer, status, domainError.Code, domainError.Message, domainError.Cause)
 }

@@ -178,11 +178,13 @@ func (service *Service) AppendBatch(ctx context.Context, input AppendBatchInput)
 		if err := service.projectSource(ctx, key, existing.SegmentSHA256, segmentRecords(existing)); err != nil {
 			return Segment{}, err
 		}
+		service.search.observeSegment(ctx, key, existing)
 		return existing, nil
 	}
 	if err := service.projectSource(ctx, key, segment.SegmentSHA256, segmentRecords(segment)); err != nil {
 		return Segment{}, err
 	}
+	service.search.observeSegment(ctx, key, segment)
 	return segment, nil
 }
 

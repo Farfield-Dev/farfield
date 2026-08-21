@@ -19,6 +19,9 @@ with ff.conversation(agent="support-agent", tags={"env": "dev"}) as conversation
 
 timeline = ff.timeline(conversation.id)
 print([(entry.record.kind, entry.content) for entry in timeline])
+
+hits = ff.search('"order shipped" lookup*', agent="support-agent", tags={"env": "prod"})
+print([(hit.record.id, hit.score, hit.snippet) for hit in hits.hits])
 ```
 
 Every successful write has been acknowledged by Farfield after its authoritative

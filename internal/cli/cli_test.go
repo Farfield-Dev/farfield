@@ -11,6 +11,7 @@ import (
 func TestHistoryCLIWorkflow(t *testing.T) {
 	t.Parallel()
 	store := filepath.Join(t.TempDir(), "objects")
+	searchCache := filepath.Join(t.TempDir(), "search.json.gz")
 	var stdout, stderr bytes.Buffer
 	code := Run([]string{
 		"history", "append", "--store", store, "--id", "rec_cli",
@@ -39,6 +40,20 @@ func TestHistoryCLIWorkflow(t *testing.T) {
 	code = Run([]string{"history", "timeline", "--store", store, "--conversation", "conv_cli"}, &stdout, &stderr)
 	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte(`"text": "hello"`)) {
 		t.Fatalf("timeline exit = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"history", "search", "--store", store, "--cache", searchCache, "--text", "hello", "--conversation", "conv_cli"}, &stdout, &stderr)
+	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte(`"total": 1`)) || !bytes.Contains(stdout.Bytes(), []byte(`"rec_cli"`)) {
+		t.Fatalf("search exit = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run([]string{"history", "search-index", "rebuild", "--store", store, "--cache", searchCache}, &stdout, &stderr)
+	if code != 0 || !bytes.Contains(stdout.Bytes(), []byte(`"indexed_records": 1`)) {
+		t.Fatalf("search rebuild exit = %d, stdout = %s, stderr = %s", code, stdout.String(), stderr.String())
 	}
 
 	stdout.Reset()

@@ -44,12 +44,14 @@ store. Query the latest retained run without copying any data out of Farfield:
 uv run python query_traces.py
 uv run python query_traces.py --conversation conv_personal_...
 uv run python query_traces.py --run run_agent_...
+uv run python query_traces.py --search '"object storage" latency*' --agent personal-researcher
 ```
 
 You can also browse the same history at <http://127.0.0.1:8787> or use the CLI:
 
 ```bash
 go run ../../cmd/farfield history conversations --store gs://YOUR_BUCKET/farfield
+go run ../../cmd/farfield history search --store gs://YOUR_BUCKET/farfield --text '"object storage" latency*'
 go run ../../cmd/farfield history verify --store gs://YOUR_BUCKET/farfield
 go run ../../cmd/farfield runtime verify --store gs://YOUR_BUCKET/farfield
 ```

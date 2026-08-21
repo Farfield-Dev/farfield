@@ -24,6 +24,9 @@ await ff.withConversation(
 
 const timeline = await ff.timeline(conversationId);
 console.log(timeline.map(({ record, content }) => [record.kind, content]));
+
+const result = await ff.search({ text: '"order shipped" lookup*', agent: "support-agent", tags: { env: "prod" } });
+console.log(result.hits.map(({ record, score, snippet }) => [record.id, score, snippet]));
 ```
 
 Every successful write has been acknowledged by Farfield after its authoritative

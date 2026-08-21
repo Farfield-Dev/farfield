@@ -68,14 +68,15 @@ func TestQueryTimelineAndConversations(t *testing.T) {
 	agent := "researcher"
 	for _, input := range []AppendInput{
 		{RecordID: "rec_1", ConversationID: "conv_a", Kind: "user.message", Content: []byte(`{"text":"question"}`), OccurredAt: &first, Agent: &agent},
-		{RecordID: "rec_2", ConversationID: "conv_a", Kind: "model.response", Content: []byte(`{"text":"answer"}`), OccurredAt: &second, Agent: &agent},
+		{RecordID: "rec_2", ConversationID: "conv_a", Kind: "model.response", Content: []byte(`{"text":"answer"}`), OccurredAt: &second, Agent: &agent, Tags: map[string]string{"env": "test"}},
 		{RecordID: "rec_3", ConversationID: "conv_b", Kind: "user.message", Content: []byte(`{"text":"other"}`), OccurredAt: &second},
 	} {
 		if _, err := service.Append(context.Background(), input); err != nil {
 			t.Fatal(err)
 		}
 	}
-	records, err := service.Query(context.Background(), Query{ConversationID: "conv_a", Kind: "model.response"})
+	until := second.Add(time.Second)
+	records, err := service.Query(context.Background(), Query{ConversationID: "conv_a", Kind: "model.response", Tags: map[string]string{"env": "test"}, Until: &until})
 	if err != nil || len(records) != 1 || records[0].ID != "rec_2" {
 		t.Fatalf("Query = %#v, %v", records, err)
 	}

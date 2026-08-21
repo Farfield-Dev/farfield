@@ -81,6 +81,34 @@ Hierarchical delta packs and sharded snapshot manifests are the scale path for
 avoiding an unbounded delta-prefix listing without changing the authoritative
 record format.
 
+## Search projection
+
+Full-text search is an embedded disposable projection, not another durable
+database. On its first query a process loads its checksummed local cache when
+available, lists authoritative History segments, and fetches only sources the
+cache has not applied. A missing or corrupt cache is ignored and rebuilt from
+the bucket.
+
+Warm queries execute entirely in process against an inverted index with BM25
+ranking, term positions, exact metadata postings, and Unicode-aware tokens.
+Writes through the same process become searchable immediately. A warm query
+never waits for the periodic object-store LIST used to discover external
+writers; that refresh happens asynchronously.
+
+The default server cache lives under the operating system's user cache
+directory and is keyed by the store description. `--search-cache :memory:`
+disables persistence, while `--search-cache PATH` selects an explicit file.
+Deleting the cache loses no evidence:
+
+```bash
+farfield history search-index rebuild --store gs://bucket/prefix
+```
+
+This first implementation intentionally optimizes a single query process. At
+large multi-replica scale, immutable object-backed index packs and manifests
+will let replicas download a ready index generation instead of independently
+rebuilding from every authoritative segment.
+
 ## Runtime journal
 
 A run is a contiguous sequence of immutable events. There is no mutable head

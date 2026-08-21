@@ -25,6 +25,9 @@ The project is building an open substrate for long-running agents: durable execu
   and S3-compatible storage.
 - Run everything through one `farfield` CLI binary.
 - Query records by conversation, trace, kind, agent, tool, or status.
+- Search event content with BM25 ranking, quoted phrases, prefix matching, time
+  bounds, and indexed conversation, trace, kind, agent, tool, status, and tag
+  filters.
 - Inspect conversation summaries and hydrated timelines.
 - Ingest and query over a versioned HTTP API.
 - Browse captured conversations in the embedded local inspector.
@@ -134,6 +137,7 @@ go run ./cmd/farfield history append \
   --content '{"model":"gpt-5","text":"hello"}'
 
 go run ./cmd/farfield history timeline --conversation conv_demo
+go run ./cmd/farfield history search --text '"shipped order" lookup*' --agent support-agent
 go run ./cmd/farfield history verify
 
 go run ./cmd/farfield runtime create \
@@ -216,9 +220,15 @@ multi-tenant observability backend or worker scheduler:
 
 - Conversation lists use a rebuildable object-backed projection with immutable
   deltas and checksummed snapshots. Timelines list only the selected
-  conversation's exact prefix and fetch its segments concurrently. Global and
-  trace-filtered queries still scan all conversation segments; rebuildable
-  locator projections and compacted range-readable packs are the scale path.
+  conversation's exact prefix and fetch its segments concurrently. Structured
+  queries use the disposable search index; authoritative list-all and
+  record-ID-only reads still scan conversation segments. Rebuildable locator
+  projections and compacted range-readable packs are the scale path.
+- Full-text search uses a persistent but disposable embedded index. Its first
+  read synchronizes immutable History; warm searches are local, same-process
+  writes are visible immediately, and external writes refresh asynchronously.
+  Large multi-replica deployments will need object-backed index packs and
+  manifests rather than independently rebuilding every replica.
 - The HTTP server has no authentication or tenant isolation and binds to loopback by default.
 - S3 immutable writes require `PutObject` with `If-None-Match: *`; incompatible
   providers are rejected. Native GCS writes use `ifGenerationMatch=0`.

@@ -23,12 +23,26 @@ def main() -> int:
     parser.add_argument("--conversation")
     parser.add_argument("--run")
     parser.add_argument(
+        "--search", help="full-text query, for example: '\"object storage\" latency*'"
+    )
+    parser.add_argument("--agent", help="exact agent filter for --search")
+    parser.add_argument("--kind", help="exact record-kind filter for --search")
+    parser.add_argument(
         "--endpoint", default=os.getenv("FARFIELD_ENDPOINT", "http://127.0.0.1:8787")
     )
     parser.add_argument("--runs-file", type=Path, default=HERE / "test-runs.jsonl")
     args = parser.parse_args()
     ff = Farfield(endpoint=args.endpoint, timeout=60)
     runs = read_runs(args.runs_file)
+
+    if args.search:
+        print(
+            json.dumps(
+                asdict(ff.search(args.search, agent=args.agent, kind=args.kind, limit=50)),
+                indent=2,
+            )
+        )
+        return 0
 
     if args.run:
         print(

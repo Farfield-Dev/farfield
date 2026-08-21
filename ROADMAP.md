@@ -13,6 +13,8 @@ Farfield's destination is an open durable execution and observability platform f
 - [ ] Sharded manifests and compacted range-readable packs ([design](docs/design/0001-object-storage-native-history.md))
 - [x] Rebuildable object-backed conversation projection with immutable deltas,
   checksummed snapshots, retry repair, and warm in-memory reads
+- [x] Embedded BM25 full-text search with phrase/prefix queries, indexed agent
+  metadata filters, disposable disk caching, and authoritative rebuild
 - [ ] Sharded query projections and disposable range/block cache
 - [ ] Agent-shaped object-storage benchmark and recovery harness ([workload model](docs/design/0002-agent-workload-storage-fit.md))
 - [x] Versioned HTTP ingestion and local inspector

@@ -13,6 +13,8 @@ import type {
   Run,
   RunStatus,
   RuntimeEvent,
+  SearchQuery,
+  SearchResult,
   Scope,
   Segment,
   WireEvent,
@@ -160,7 +162,26 @@ export class Farfield {
     add(parameters, "tool", query.tool);
     add(parameters, "status", query.status);
     add(parameters, "since", query.since instanceof Date ? query.since.toISOString() : query.since);
+    add(parameters, "until", query.until instanceof Date ? query.until.toISOString() : query.until);
+    for (const key of Object.keys(query.tags ?? {}).sort()) parameters.append("tag", `${key}=${query.tags![key]}`);
     return this.#request("GET", `/v1/history/records?${parameters}`, undefined, options);
+  }
+
+  async search(query: SearchQuery = {}, options: RequestOptions = {}): Promise<SearchResult> {
+    const limit = query.limit ?? 100;
+    validateLimit(limit);
+    const parameters = new URLSearchParams({ limit: String(limit) });
+    add(parameters, "q", query.text);
+    add(parameters, "conversation_id", query.conversationId);
+    add(parameters, "trace_id", query.traceId);
+    add(parameters, "kind", query.kind);
+    add(parameters, "agent", query.agent);
+    add(parameters, "tool", query.tool);
+    add(parameters, "status", query.status);
+    add(parameters, "since", query.since instanceof Date ? query.since.toISOString() : query.since);
+    add(parameters, "until", query.until instanceof Date ? query.until.toISOString() : query.until);
+    for (const key of Object.keys(query.tags ?? {}).sort()) parameters.append("tag", `${key}=${query.tags![key]}`);
+    return this.#request("GET", `/v1/history/search?${parameters}`, undefined, options);
   }
 
   getRecord(recordId: string, options: RequestOptions = {}): Promise<Entry> {

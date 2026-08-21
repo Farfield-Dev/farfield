@@ -95,8 +95,40 @@ type HistoryQuery struct {
 	Agent          string
 	Tool           string
 	Status         string
+	Tags           map[string]string
 	Since          *time.Time
+	Until          *time.Time
 	Limit          int
+}
+
+// SearchQuery supports ranked content search plus exact metadata filters.
+// Quoted text is a phrase and a trailing * performs prefix matching.
+type SearchQuery struct {
+	Text           string
+	ConversationID string
+	TraceID        string
+	Kind           string
+	Agent          string
+	Tool           string
+	Status         string
+	Tags           map[string]string
+	Since          *time.Time
+	Until          *time.Time
+	Limit          int
+}
+
+type SearchHit struct {
+	Record  Record  `json:"record"`
+	Score   float64 `json:"score"`
+	Snippet string  `json:"snippet,omitempty"`
+}
+
+type SearchResult struct {
+	Hits           []SearchHit `json:"hits"`
+	Total          int         `json:"total"`
+	TookMS         float64     `json:"took_ms"`
+	IndexedRecords int         `json:"indexed_records"`
+	IndexUpdatedAt time.Time   `json:"index_updated_at"`
 }
 
 type RuntimeStatus string

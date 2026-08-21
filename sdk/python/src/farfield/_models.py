@@ -139,6 +139,40 @@ class ConversationSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class SearchHit:
+    record: Record
+    score: float
+    snippet: str | None = None
+
+    @classmethod
+    def from_payload(cls, value: Mapping[str, Any]) -> SearchHit:
+        return cls(
+            record=Record.from_payload(_mapping(value.get("record"))),
+            score=float(value.get("score", 0)),
+            snippet=_optional_string(value.get("snippet")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SearchResult:
+    hits: tuple[SearchHit, ...]
+    total: int
+    took_ms: float
+    indexed_records: int
+    index_updated_at: str
+
+    @classmethod
+    def from_payload(cls, value: Mapping[str, Any]) -> SearchResult:
+        return cls(
+            hits=tuple(SearchHit.from_payload(_mapping(item)) for item in _list(value.get("hits"))),
+            total=int(value.get("total", 0)),
+            took_ms=float(value.get("took_ms", 0)),
+            indexed_records=int(value.get("indexed_records", 0)),
+            index_updated_at=str(value.get("index_updated_at", "")),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Segment:
     id: str
     conversation_id: str

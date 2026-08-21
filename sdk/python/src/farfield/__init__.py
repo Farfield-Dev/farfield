@@ -9,6 +9,8 @@ from ._models import (
     Run,
     RuntimeEvent,
     Scope,
+    SearchHit,
+    SearchResult,
     Segment,
 )
 
@@ -27,6 +29,8 @@ __all__ = [
     "Record",
     "Run",
     "RuntimeEvent",
+    "SearchHit",
+    "SearchResult",
     "Scope",
     "Segment",
     "TransportError",

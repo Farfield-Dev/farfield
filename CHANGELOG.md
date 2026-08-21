@@ -18,6 +18,9 @@ breaking protocol changes.
   and Runtime journal access.
 - Exact-body retry behavior with stable client-generated IDs and timestamps.
 - SDK package, type, lint, and behavioral checks in CI.
+- Embedded BM25 full-text search with phrase and prefix syntax, exact metadata
+  and tag filters, snippets, automatic repair, HTTP/CLI access, and native SDK
+  methods.
 
 ### Changed
 

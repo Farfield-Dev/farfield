@@ -114,7 +114,8 @@ test("invalid JSON is rejected before transport", async () => {
 test("history reads and runtime operations cover the complete API", async () => {
   const ff = new Farfield({ endpoint });
   assert.equal(await ff.health(), true);
-  assert.equal((await ff.query({ conversationId: "conv_query", limit: 10 }))[0]?.id, "rec_query");
+  assert.equal((await ff.query({ conversationId: "conv_query", tags: { env: "test" }, limit: 10 }))[0]?.id, "rec_query");
+  assert.equal((await ff.search({ text: "hello", tags: { env: "test" } })).hits[0]?.record.id, "rec_query");
   assert.deepEqual((await ff.getRecord("rec_query")).content, { text: "hello" });
   assert.equal((await ff.conversations())[0]?.id, "conv_query");
   assert.equal((await ff.timeline("conv_query"))[0]?.record.id, "rec_query");
@@ -164,7 +165,15 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     });
   }
   if (url.pathname === "/v1/health") return send(response, 200, { ok: true, service: "farfield" });
-  if (url.pathname === "/v1/history/records" && request.method === "GET") return send(response, 200, [record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent)]);
+  if (url.pathname === "/v1/history/records" && request.method === "GET") {
+    assert.equal(url.searchParams.get("tag"), "env=test");
+    return send(response, 200, [record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent)]);
+  }
+  if (url.pathname === "/v1/history/search") {
+    assert.equal(url.searchParams.get("q"), "hello");
+    assert.equal(url.searchParams.get("tag"), "env=test");
+    return send(response, 200, { hits: [{ record: record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent), score: 1, snippet: "hello" }], total: 1, took_ms: 0.2, indexed_records: 1, index_updated_at: "2026-01-01T00:00:00Z" });
+  }
   if (url.pathname === "/v1/history/records/rec_query") return send(response, 200, { record: record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent), content: { text: "hello" } });
   if (url.pathname === "/v1/history/conversations") return send(response, 200, [{ id: "conv_query", record_count: 1, first_seen_at: "2026-01-01T00:00:00Z", last_seen_at: "2026-01-01T00:00:00Z", agents: [], kinds: ["message.user"] }]);
   if (url.pathname === "/v1/history/conversations/conv_query/timeline") return send(response, 200, [{ record: record({ id: "rec_query", conversation_id: "conv_query", kind: "message.user", content: null } as WireEvent), content: { text: "hello" } }]);
