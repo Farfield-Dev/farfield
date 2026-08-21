@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Farfield-Dev/farfield/history"
+	"github.com/Farfield-Dev/farfield/ingest/otlp"
 	farfieldruntime "github.com/Farfield-Dev/farfield/runtime"
 )
 
@@ -21,6 +22,7 @@ const maxRequestBytes = history.DefaultMaxSegmentBytes + 1024*1024
 type Server struct {
 	history *history.Service
 	runtime *farfieldruntime.Journal
+	otlp    *otlp.Ingestor
 	mux     *http.ServeMux
 }
 
@@ -34,7 +36,11 @@ func New(service *history.Service, options ...Option) (*Server, error) {
 	if service == nil {
 		return nil, fmt.Errorf("history service is required")
 	}
-	server := &Server{history: service, mux: http.NewServeMux()}
+	otlpIngestor, err := otlp.New(service)
+	if err != nil {
+		return nil, err
+	}
+	server := &Server{history: service, otlp: otlpIngestor, mux: http.NewServeMux()}
 	for _, option := range options {
 		option(server)
 	}
@@ -47,6 +53,8 @@ func (server *Server) Handler() http.Handler { return server.mux }
 func (server *Server) routes() {
 	server.mux.HandleFunc("GET /", server.index)
 	server.mux.HandleFunc("GET /v1/health", server.health)
+	server.mux.HandleFunc("POST /v1/traces", server.exportOTLPTraces)
+	server.mux.HandleFunc("POST /v1/otel/v1/traces", server.exportOTLPTraces)
 	server.mux.HandleFunc("POST /v1/history/records", server.appendRecord)
 	server.mux.HandleFunc("POST /v1/history/segments", server.appendSegment)
 	server.mux.HandleFunc("GET /v1/history/records", server.queryRecords)

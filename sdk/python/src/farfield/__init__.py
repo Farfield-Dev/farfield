@@ -13,11 +13,13 @@ from ._models import (
     SearchResult,
     Segment,
 )
+from ._processor import BackgroundProcessor, ProcessorStats
 
 __all__ = [
     "APIError",
     "AsyncFarfield",
     "Batch",
+    "BackgroundProcessor",
     "Conversation",
     "ConversationSummary",
     "DroppedEvent",
@@ -27,6 +29,7 @@ __all__ = [
     "FarfieldError",
     "JSON",
     "Record",
+    "ProcessorStats",
     "Run",
     "RuntimeEvent",
     "SearchHit",

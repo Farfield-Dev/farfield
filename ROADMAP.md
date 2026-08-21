@@ -18,9 +18,11 @@ Farfield's destination is an open durable execution and observability platform f
 - [ ] Sharded query projections and disposable range/block cache
 - [ ] Agent-shaped object-storage benchmark and recovery harness ([workload model](docs/design/0002-agent-workload-storage-fit.md))
 - [x] Versioned HTTP ingestion and local inspector
-- [ ] OTLP ingestion
+- [x] OTLP/HTTP protobuf and JSON ingestion with agent-semantic normalization
 - [x] Native Python, TypeScript, and Go SDKs for capture, query, and Runtime
-- [ ] Framework adapters and bounded background SDK processors
+- [x] Bounded background processors in Python, TypeScript, and Go
+- [x] Direct OpenAI Agents and Claude Agent SDK adapters in Python and TypeScript
+- [x] OTel GenAI/OpenInference compatibility for mainstream agent frameworks
 - [ ] Release artifacts, Homebrew installation, and signed containers
 
 ## Next: durable agent execution

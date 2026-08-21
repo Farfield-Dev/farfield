@@ -119,7 +119,7 @@ class Farfield:
         )
 
     def capture_event(self, event: Event) -> Record:
-        prepared = self._prepare_event(event)
+        prepared = self.prepare_event(event)
         value = self._request("POST", "/v1/history/records", prepared.to_payload())
         return Record.from_payload(_mapping(value))
 
@@ -128,7 +128,7 @@ class Farfield:
         conversation_id: str | None = None
         for event in events:
             try:
-                value = self._prepare_event(event)
+                value = self.prepare_event(event)
             except DroppedEvent:
                 continue
             if conversation_id is None:
@@ -138,13 +138,7 @@ class Farfield:
             prepared.append(value)
         if not prepared:
             raise DroppedEvent("farfield: every event in the batch was dropped")
-        payload = {
-            "id": segment_id or _id("seg_"),
-            "records": [event.to_payload() for event in prepared],
-        }
-        return Segment.from_payload(
-            _mapping(self._request("POST", "/v1/history/segments", payload))
-        )
+        return self.capture_prepared_batch(prepared, segment_id=segment_id)
 
     def query(
         self,
@@ -325,7 +319,8 @@ class Farfield:
         path = f"/v1/runtime/runs/{quote(run_id, safe='')}/checkpoints"
         return RuntimeEvent.from_payload(_mapping(self._request("POST", path, payload)))
 
-    def _prepare_event(self, event: Event) -> Event:
+    def prepare_event(self, event: Event) -> Event:
+        """Snapshot caller-local scope and privacy policy without sending the event."""
         scope = _merge_scope(self.defaults, get_scope())
         prepared = replace(
             event,
@@ -353,6 +348,26 @@ class Farfield:
         # Validate and snapshot JSON before any network attempt.
         _encode(prepared.to_payload())
         return prepared
+
+    def capture_prepared_batch(
+        self, events: Iterable[Event], *, segment_id: str | None = None
+    ) -> Segment:
+        """Send events previously snapshotted with :meth:`prepare_event`."""
+        prepared = tuple(events)
+        if not prepared:
+            raise ValueError("farfield: batch requires at least one event")
+        conversation_id = prepared[0].conversation_id
+        if not conversation_id or any(
+            event.conversation_id != conversation_id for event in prepared
+        ):
+            raise ValueError("farfield: every event in a batch must belong to one conversation")
+        payload = {
+            "id": segment_id or _id("seg_"),
+            "records": [event.to_payload() for event in prepared],
+        }
+        return Segment.from_payload(
+            _mapping(self._request("POST", "/v1/history/segments", payload))
+        )
 
     def _request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Any:
         body = _encode(payload) if payload is not None else None

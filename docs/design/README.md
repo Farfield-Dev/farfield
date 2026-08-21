@@ -23,3 +23,4 @@ unimplemented capability available.
 | [0004: Object-storage-native conversation projection](0004-object-storage-conversation-projection.md) | Implemented |
 | [0005: Query-aligned conversation segments](0005-query-aligned-conversation-segments.md) | Implemented |
 | [0006: Disposable indexed search](0006-disposable-indexed-search.md) | Implemented |
+| [0007: Protocol-first agent framework integrations](0007-protocol-first-integrations.md) | Implemented |

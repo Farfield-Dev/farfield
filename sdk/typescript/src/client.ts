@@ -89,7 +89,7 @@ export class Farfield {
   }
 
   async capture(event: Event, options: RequestOptions = {}): Promise<HistoryRecord> {
-    const prepared = await this.#prepare(event);
+    const prepared = await this.prepareEvent(event);
     return this.#request("POST", "/v1/history/records", prepared, options);
   }
 
@@ -102,7 +102,7 @@ export class Farfield {
     let conversationId: string | undefined;
     for (const event of events) {
       try {
-        const value = await this.#prepare(event);
+        const value = await this.prepareEvent(event);
         conversationId ??= value.conversation_id;
         if (value.conversation_id !== conversationId) {
           throw new TypeError("farfield: every event in a batch must belong to one conversation");
@@ -113,12 +113,7 @@ export class Farfield {
       }
     }
     if (prepared.length === 0) throw new DroppedEvent("farfield: every event in the batch was dropped");
-    return this.#request(
-      "POST",
-      "/v1/history/segments",
-      { id: options.segmentId ?? id("seg_"), records: prepared },
-      options,
-    );
+    return this.capturePreparedBatch(prepared, options);
   }
 
   async withConversation<T>(
@@ -247,7 +242,8 @@ export class Farfield {
     );
   }
 
-  async #prepare(event: Event): Promise<WireEvent> {
+  /** Snapshot caller-local scope and privacy policy without sending the event. */
+  async prepareEvent(event: Event): Promise<WireEvent> {
     const scope = this.#activeScope();
     let prepared: WireEvent = compact({
       id: event.id ?? id("rec_"),
@@ -280,6 +276,24 @@ export class Farfield {
     }
     encode(prepared);
     return prepared;
+  }
+
+  /** Send events previously snapshotted with prepareEvent. */
+  capturePreparedBatch(
+    events: readonly WireEvent[],
+    options: RequestOptions & { segmentId?: string } = {},
+  ): Promise<Segment> {
+    if (events.length === 0) throw new TypeError("farfield: batch requires at least one event");
+    const conversationId = events[0]!.conversation_id;
+    if (!conversationId || events.some((event) => event.conversation_id !== conversationId)) {
+      throw new TypeError("farfield: every event in a batch must belong to one conversation");
+    }
+    return this.#request(
+      "POST",
+      "/v1/history/segments",
+      { id: options.segmentId ?? id("seg_"), records: events },
+      options,
+    );
   }
 
   #activeScope(): Scope {

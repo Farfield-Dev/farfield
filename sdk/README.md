@@ -9,8 +9,12 @@ and execute.
 
 All three use the versioned HTTP protocol and share the same behavioral
 contract: stable IDs, exact-body retries, durable capture, explicit batching,
-conversation context, privacy hooks, typed errors, and Runtime journal access.
-They do not duplicate the object-storage implementation.
+bounded background processors, conversation context, privacy hooks, typed
+errors, and Runtime journal access. They do not duplicate the object-storage
+implementation.
 
-Framework adapters remain separate packages layered on these clients. See the
+Python and TypeScript also ship optional direct adapters for OpenAI Agents and
+Claude Agent SDK. Frameworks with OpenTelemetry or OpenInference support use the
+core OTLP/HTTP endpoint instead of a bespoke wrapper. See the
+[integration guide](../docs/integrations.md) and
 [SDK design decision](../docs/design/0003-native-sdk-experience.md).

@@ -128,6 +128,100 @@ func TestBeforeSendCanDrop(t *testing.T) {
 	}
 }
 
+func TestBackgroundProcessorBatchesByConversationAndFlushes(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var segments []BatchInput
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var value BatchInput
+		if err := json.NewDecoder(request.Body).Decode(&value); err != nil {
+			t.Error(err)
+		}
+		mu.Lock()
+		segments = append(segments, value)
+		mu.Unlock()
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"id": value.ID, "conversation_id": value.Records[0].ConversationID, "entries": []any{},
+		})
+	}))
+	defer server.Close()
+	client, _ := New(WithEndpoint(server.URL), WithRetries(0, 0), WithDefaults(Scope{Tags: map[string]string{"env": "test"}}))
+	processor, err := NewBackgroundProcessor(client, ProcessorOptions{MaxBatchSize: 10, ScheduleDelay: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithScope(context.Background(), Scope{ConversationID: "conv_one", Agent: "researcher"})
+	for _, kind := range []string{"message.user", "message.assistant"} {
+		accepted, submitErr := processor.Submit(ctx, CaptureInput{Kind: kind, Content: kind})
+		if submitErr != nil || !accepted {
+			t.Fatalf("submit = %v, %v", accepted, submitErr)
+		}
+	}
+	accepted, err := processor.Submit(context.Background(), CaptureInput{ConversationID: "conv_two", Kind: "tool.result", Tool: "search", Content: true})
+	if err != nil || !accepted {
+		t.Fatalf("submit = %v, %v", accepted, err)
+	}
+	flushCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := processor.Flush(flushCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := processor.Shutdown(flushCtx); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(segments) != 2 {
+		t.Fatalf("segments = %#v", segments)
+	}
+	counts := map[string]int{}
+	for _, segment := range segments {
+		counts[segment.Records[0].ConversationID] = len(segment.Records)
+		if segment.Records[0].ConversationID == "conv_one" && (segment.Records[0].Agent != "researcher" || segment.Records[0].Tags["env"] != "test") {
+			t.Fatalf("snapshotted record = %#v", segment.Records[0])
+		}
+	}
+	if counts["conv_one"] != 2 || counts["conv_two"] != 1 {
+		t.Fatalf("counts = %#v", counts)
+	}
+	stats := processor.Stats()
+	if stats.Enqueued != 3 || stats.Committed != 3 || stats.Pending != 0 || stats.Batches != 2 {
+		t.Fatalf("stats = %#v", stats)
+	}
+}
+
+func TestBackgroundProcessorReportsDeliveryFailures(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = writer.Write([]byte(`{"error":{"code":"FH_BUSY","message":"busy","retryable":true}}`))
+	}))
+	defer server.Close()
+	client, _ := New(WithEndpoint(server.URL), WithRetries(0, 0))
+	errorsSeen := make(chan error, 1)
+	processor, _ := NewBackgroundProcessor(client, ProcessorOptions{ScheduleDelay: time.Millisecond, OnError: func(err error) { errorsSeen <- err }})
+	accepted, err := processor.Submit(context.Background(), CaptureInput{ConversationID: "conv_fail", Kind: "message.user", Content: "hello"})
+	if err != nil || !accepted {
+		t.Fatalf("submit = %v, %v", accepted, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := processor.Flush(ctx); err == nil {
+		t.Fatal("flush unexpectedly succeeded")
+	}
+	if err := processor.Shutdown(ctx); err == nil {
+		t.Fatal("shutdown unexpectedly succeeded after a permanent delivery failure")
+	}
+	select {
+	case <-errorsSeen:
+	default:
+		t.Fatal("on-error callback was not called")
+	}
+	if stats := processor.Stats(); stats.Failed != 1 || stats.Committed != 0 {
+		t.Fatalf("stats = %#v", stats)
+	}
+}
+
 func TestHistoryReadSurface(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
