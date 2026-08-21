@@ -58,7 +58,7 @@ jobs:
             -trimpath \
             -ldflags="-s -w -X github.com/Farfield-Dev/farfield/internal/buildinfo.Version=${GITHUB_REF_NAME#v}" \
             -o "dist/farfield_${{ matrix.goos }}_${{ matrix.goarch }}${suffix}" ./cmd/farfield
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: farfield_${{ matrix.goos }}_${{ matrix.goarch }}
           path: dist/*
