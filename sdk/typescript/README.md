@@ -1,6 +1,6 @@
 # Farfield TypeScript SDK
 
-Durable agent history and execution with a typed, Node-native API.
+Durable agent history with a typed, Node-native API.
 
 ```bash
 npm install @farfield/sdk
@@ -87,13 +87,11 @@ OpenAI Agents and Claude Agent SDK have typed adapters at
 or OpenInference send directly to Farfield's OTLP endpoint. See the complete
 [integration guide](../../docs/integrations.md).
 
-## Explore and resume
+## Explore
 
 ```ts
 const records = await ff.query({ agent: "support-agent", kind: "tool.result", limit: 50 });
 const conversations = await ff.conversations(20);
-const run = await ff.getRun("run_123");
-const events = await ff.runEvents(run.id);
 ```
 
 The package is ESM-only, requires Node 20+, ships declarations and source maps,

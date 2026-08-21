@@ -18,7 +18,7 @@ MODEL = "claude-sonnet-4-6"
 AGENT = "farfield-personal-researcher"
 HERE = Path(__file__).resolve().parent
 REPOSITORY = HERE.parents[1]
-DEFAULT_RUNS_FILE = HERE / "test-runs.jsonl"
+DEFAULT_TRACES_FILE = HERE / "test-traces.jsonl"
 SYSTEM_PROMPT = """You are a careful personal research agent helping build Farfield.
 Use web search when current facts or primary sources matter. Prefer official documentation,
 original research, and first-party announcements. Cite sources in the response. Be explicit
@@ -96,27 +96,10 @@ def run_turn(
     model: str,
     max_tokens: int,
     max_searches: int,
-    runs_file: Path,
+    traces_file: Path,
 ) -> dict[str, Any]:
-    run_id = identifier("run_agent_")
+    turn_id = identifier("turn_agent_")
     started_at = utc_now()
-    farfield.create_run(
-        run_id=run_id,
-        operation_id="create",
-        checkpoint={
-            "phase": "accepted",
-            "conversation_id": conversation_id,
-            "trace_id": trace_id,
-            "prompt_name": name,
-            "model": model,
-        },
-    )
-    farfield.transition_run(
-        run_id,
-        "running",
-        operation_id="start_attempt_1",
-        checkpoint={"phase": "model_request", "prompt_name": name},
-    )
 
     with farfield.conversation(
         conversation_id,
@@ -124,13 +107,13 @@ def run_turn(
         agent=AGENT,
         tags={"example": "python-personal-agent", "prompt": name},
     ) as conversation:
-        with conversation.batch(segment_id=f"seg_{run_id}_request") as batch:
+        with conversation.batch(segment_id=f"seg_{turn_id}_request") as batch:
             batch.capture(
                 "agent.turn.started",
-                {"run_id": run_id, "prompt_name": name, "started_at": started_at},
+                {"turn_id": turn_id, "prompt_name": name, "started_at": started_at},
                 status="running",
             )
-            batch.message("user", {"text": prompt, "run_id": run_id})
+            batch.message("user", {"text": prompt, "turn_id": turn_id})
             batch.capture(
                 "model.request",
                 {
@@ -175,7 +158,7 @@ def run_turn(
                 if isinstance(citation, Mapping)
             ]
 
-            with conversation.batch(segment_id=f"seg_{run_id}_response") as batch:
+            with conversation.batch(segment_id=f"seg_{turn_id}_response") as batch:
                 for block in content:
                     if not isinstance(block, Mapping):
                         continue
@@ -195,7 +178,7 @@ def run_turn(
                 batch.capture(
                     "agent.turn.completed",
                     {
-                        "run_id": run_id,
+                        "turn_id": turn_id,
                         "prompt_name": name,
                         "stop_reason": response_value.get("stop_reason"),
                         "usage": response_value.get("usage"),
@@ -207,24 +190,8 @@ def run_turn(
             # turn only needs normalized text; replaying encrypted web-search blocks
             # makes context and cost grow dramatically without improving continuity.
             messages.append({"role": "assistant", "content": assistant_text})
-            checkpoint = {
-                "phase": "response_committed",
-                "conversation_id": conversation_id,
-                "trace_id": trace_id,
-                "prompt_name": name,
-                "response_id": response.id,
-                "stop_reason": response.stop_reason,
-                "usage": json_value(response.usage),
-            }
-            farfield.checkpoint_run(run_id, checkpoint, operation_id="response_committed")
-            farfield.transition_run(
-                run_id,
-                "completed",
-                operation_id="complete",
-                checkpoint={**checkpoint, "phase": "completed"},
-            )
             result = {
-                "run_id": run_id,
+                "turn_id": turn_id,
                 "conversation_id": conversation_id,
                 "trace_id": trace_id,
                 "prompt_name": name,
@@ -235,25 +202,19 @@ def run_turn(
                 "response_id": response.id,
                 "usage": json_value(response.usage),
             }
-            append_manifest(runs_file, result)
+            append_manifest(traces_file, result)
             print(f"\n## {name}\n\n{assistant_text.strip()}\n")
-            print(f"Farfield: conversation={conversation_id} run={run_id}", file=sys.stderr)
+            print(f"Farfield: conversation={conversation_id} trace={trace_id}", file=sys.stderr)
             return result
         except Exception as error:
-            error_value = {"type": type(error).__name__, "message": str(error), "run_id": run_id}
+            error_value = {"type": type(error).__name__, "message": str(error), "turn_id": turn_id}
             try:
                 conversation.capture("agent.turn.failed", error_value, status="failed")
-                farfield.transition_run(
-                    run_id,
-                    "failed",
-                    operation_id="fail",
-                    checkpoint={"phase": "failed", "error": error_value},
-                )
             finally:
                 append_manifest(
-                    runs_file,
+                    traces_file,
                     {
-                        "run_id": run_id,
+                        "turn_id": turn_id,
                         "conversation_id": conversation_id,
                         "trace_id": trace_id,
                         "prompt_name": name,
@@ -279,7 +240,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--conversation", help="reuse a specific Farfield conversation ID")
     parser.add_argument("--max-tokens", type=int, default=1400)
     parser.add_argument("--max-searches", type=int, default=3)
-    parser.add_argument("--runs-file", type=Path, default=DEFAULT_RUNS_FILE)
+    parser.add_argument("--traces-file", type=Path, default=DEFAULT_TRACES_FILE)
     return parser.parse_args()
 
 
@@ -329,7 +290,7 @@ def main() -> int:
             model=args.model,
             max_tokens=args.max_tokens,
             max_searches=args.max_searches,
-            runs_file=args.runs_file,
+            traces_file=args.traces_file,
         )
     print(
         f"Inspect: uv run python query_traces.py --conversation {conversation_id}",

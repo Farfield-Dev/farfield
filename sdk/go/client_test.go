@@ -284,56 +284,6 @@ func TestHistoryReadSurface(t *testing.T) {
 	}
 }
 
-func TestRuntimeClient(t *testing.T) {
-	t.Parallel()
-	var paths []string
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		paths = append(paths, request.Method+" "+request.URL.Path)
-		writer.Header().Set("Content-Type", "application/json")
-		switch request.URL.Path {
-		case "/v1/runtime/runs":
-			var value CreateRunInput
-			_ = json.NewDecoder(request.Body).Decode(&value)
-			if value.ID == "" || value.OperationID == "" {
-				t.Errorf("create = %#v", value)
-			}
-			_ = json.NewEncoder(writer).Encode(map[string]any{"run_id": value.ID, "operation_id": value.OperationID, "to": "queued"})
-		case "/v1/runtime/runs/run_go/transitions":
-			_ = json.NewEncoder(writer).Encode(map[string]any{"run_id": "run_go", "to": "running"})
-		case "/v1/runtime/runs/run_go/checkpoints":
-			_ = json.NewEncoder(writer).Encode(map[string]any{"run_id": "run_go", "to": "running"})
-		case "/v1/runtime/runs/run_go/events":
-			_ = json.NewEncoder(writer).Encode([]any{map[string]any{"run_id": "run_go", "to": "queued"}})
-		case "/v1/runtime/runs/run_go":
-			_ = json.NewEncoder(writer).Encode(map[string]any{"id": "run_go", "status": "running"})
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-	client, _ := New(WithEndpoint(server.URL), WithRetries(0, 0))
-	ctx := context.Background()
-	created, err := client.CreateRun(ctx, CreateRunInput{ID: "run_go", Checkpoint: map[string]any{"step": 0}})
-	if err != nil || created.RunID != "run_go" {
-		t.Fatalf("created = %#v, err = %v", created, err)
-	}
-	if _, err := client.TransitionRun(ctx, "run_go", TransitionRunInput{To: Running}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.CheckpointRun(ctx, "run_go", CheckpointRunInput{Checkpoint: map[string]any{"step": 1}}); err != nil {
-		t.Fatal(err)
-	}
-	if run, err := client.GetRun(ctx, "run_go"); err != nil || run.Status != Running {
-		t.Fatalf("run = %#v, err = %v", run, err)
-	}
-	if events, err := client.RunEvents(ctx, "run_go"); err != nil || len(events) != 1 {
-		t.Fatalf("events = %#v, err = %v", events, err)
-	}
-	if len(paths) != 5 {
-		t.Fatalf("paths = %#v", paths)
-	}
-}
-
 func TestAPIErrorIsTyped(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

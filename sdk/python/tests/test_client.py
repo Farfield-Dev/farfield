@@ -91,10 +91,6 @@ class _Handler(BaseHTTPRequestHandler):
                     }
                 ],
             )
-        elif path == "/v1/runtime/runs/run_one":
-            self._json(200, {"id": "run_one", "status": "running", "sequence": 1, "attempt": 1})
-        elif path == "/v1/runtime/runs/run_one/events":
-            self._json(200, [_runtime_event("run_one", "op_create", "queued")])
         else:
             self._error(404, "FH_NOT_FOUND", "not found")
 
@@ -125,15 +121,6 @@ class _Handler(BaseHTTPRequestHandler):
                     "segment_sha256": "b" * 64,
                 },
             )
-        elif self.path == "/v1/runtime/runs":
-            value = json.loads(body)
-            self._json(201, _runtime_event(value["id"], value["operation_id"], "queued"))
-        elif self.path.endswith("/transitions"):
-            value = json.loads(body)
-            self._json(201, _runtime_event("run_one", value["operation_id"], value["to"]))
-        elif self.path.endswith("/checkpoints"):
-            value = json.loads(body)
-            self._json(201, _runtime_event("run_one", value["operation_id"], "running"))
         elif self.path == "/error":
             self._error(409, "FH_CONFLICT", "already exists")
         else:
@@ -160,18 +147,6 @@ def _record(value: dict[str, Any]) -> dict[str, Any]:
         "tags": {},
         "kind": "message.user",
         **value,
-    }
-
-
-def _runtime_event(run_id: str, operation_id: str, to: str) -> dict[str, Any]:
-    return {
-        "id": "evt_one",
-        "run_id": run_id,
-        "operation_id": operation_id,
-        "sequence": 0,
-        "attempt": 0,
-        "kind": "created",
-        "to": to,
     }
 
 
@@ -297,7 +272,7 @@ class FarfieldTests(unittest.TestCase):
         self.assertEqual(0, stats.committed)
         self.assertEqual(1, len(errors))
 
-    def test_read_surface_and_runtime(self) -> None:
+    def test_read_surface(self) -> None:
         with test_server() as (endpoint, handler):
             client = Farfield(endpoint=endpoint)
             self.assertTrue(client.health())
@@ -314,12 +289,6 @@ class FarfieldTests(unittest.TestCase):
             self.assertEqual("hello", content["text"])
             self.assertEqual("conv_query", client.conversations()[0].id)
             self.assertEqual("rec_query", client.timeline("conv_query")[0].record.id)
-            event = client.create_run(run_id="run_one", operation_id="op_create")
-            self.assertEqual("run_one", event.run_id)
-            self.assertEqual("running", client.get_run("run_one").status)
-            self.assertEqual("op_create", client.run_events("run_one")[0].operation_id)
-            self.assertEqual("waiting", client.transition_run("run_one", "waiting").to)
-            self.assertEqual("running", client.checkpoint_run("run_one", {"step": 1}).to)
 
     def test_errors_are_typed(self) -> None:
         with test_server() as (endpoint, _):

@@ -28,7 +28,7 @@ func TestSearchRanksTextAndAppliesExactFilters(t *testing.T) {
 	trace := "trace_search"
 	status := "completed"
 	values := []AppendInput{
-		{RecordID: "rec_search_1", ConversationID: "conv_search", Kind: "message.assistant", Agent: &agent, TraceID: &trace, Status: &status, OccurredAt: at(base), Tags: map[string]string{"env": "prod"}, Content: []byte(`{"text":"Durable execution needs checkpoints and idempotent recovery."}`)},
+		{RecordID: "rec_search_1", ConversationID: "conv_search", Kind: "message.assistant", Agent: &agent, TraceID: &trace, Status: &status, OccurredAt: at(base), Tags: map[string]string{"env": "prod"}, Content: []byte(`{"text":"Durable agent traces need idempotent capture and checksummed recovery."}`)},
 		{RecordID: "rec_search_2", ConversationID: "conv_search", Kind: "tool.result", Agent: &agent, TraceID: &trace, OccurredAt: at(base.Add(time.Second)), Tags: map[string]string{"env": "test"}, Content: []byte(`{"text":"Execution is durable when every checkpoint is committed.","encrypted_content":"opaqueuniquetoken"}`)},
 		{RecordID: "rec_search_3", ConversationID: "conv_other", Kind: "message.assistant", OccurredAt: at(base.Add(2 * time.Second)), Content: []byte(`{"text":"A gardening conversation about durable gloves."}`)},
 		{RecordID: "rec_search_4", ConversationID: "conv_search", Kind: "message.assistant", OccurredAt: at(base.Add(3 * time.Second)), Content: []byte(`{"text":"Unrelated agent output."}`)},
@@ -39,14 +39,14 @@ func TestSearchRanksTextAndAppliesExactFilters(t *testing.T) {
 		}
 	}
 
-	result, err := service.Search(context.Background(), SearchQuery{Text: `"durable execution"`, ConversationID: "conv_search", Kind: "message.assistant", Tags: map[string]string{"env": "prod"}, Limit: 10})
+	result, err := service.Search(context.Background(), SearchQuery{Text: `"durable agent"`, ConversationID: "conv_search", Kind: "message.assistant", Tags: map[string]string{"env": "prod"}, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Total != 1 || len(result.Hits) != 1 || result.Hits[0].Record.ID != "rec_search_1" || result.Hits[0].Score <= 0 {
 		t.Fatalf("phrase search = %#v", result)
 	}
-	if result.IndexedRecords != 4 || !strings.Contains(strings.ToLower(result.Hits[0].Snippet), "durable execution") {
+	if result.IndexedRecords != 4 || !strings.Contains(strings.ToLower(result.Hits[0].Snippet), "durable agent") {
 		t.Fatalf("search metadata = %#v", result)
 	}
 

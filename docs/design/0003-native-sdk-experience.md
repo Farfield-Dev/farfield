@@ -24,7 +24,6 @@ Every SDK provides:
 - native conversation context propagation;
 - a `before_send` hook that can transform or drop content before it is sent;
 - typed server and transport errors;
-- Runtime run creation, transitions, checkpoints, reads, and event reads;
 - endpoint, token, timeout, retry, and default metadata configuration;
 - a stable SDK user agent for support and compatibility diagnosis.
 
@@ -61,7 +60,7 @@ documents `contextvars` as natively supported by `asyncio`; Node recommends
 `AsyncLocalStorage.run()` over ambient `enterWith()` for scoped context. Go
 keeps context explicit.
 
-The SDKs retain Farfield's conversation, trace, and run identities rather than
+The SDKs retain Farfield's conversation and trace identities rather than
 collapsing them. Agent-specific helpers use OpenTelemetry GenAI vocabulary
 where it is stable enough—provider, model, input/output token usage, tool, and
 conversation correlation—while retaining arbitrary JSON content and tags.

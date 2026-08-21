@@ -1,6 +1,6 @@
-// Package farfield provides an idiomatic HTTP client for Farfield History and
-// Runtime. Calls are durable by default: a successful mutation means the
-// Farfield server acknowledged the authoritative object-store commit.
+// Package farfield provides an idiomatic HTTP client for Farfield History.
+// Calls are durable by default: a successful mutation means the Farfield
+// server acknowledged the authoritative object-store commit.
 package farfield
 
 import (
@@ -129,63 +129,4 @@ type SearchResult struct {
 	TookMS         float64     `json:"took_ms"`
 	IndexedRecords int         `json:"indexed_records"`
 	IndexUpdatedAt time.Time   `json:"index_updated_at"`
-}
-
-type RuntimeStatus string
-
-const (
-	Queued    RuntimeStatus = "queued"
-	Running   RuntimeStatus = "running"
-	Waiting   RuntimeStatus = "waiting"
-	Sleeping  RuntimeStatus = "sleeping"
-	Completed RuntimeStatus = "completed"
-	Failed    RuntimeStatus = "failed"
-	Cancelled RuntimeStatus = "cancelled"
-	Ambiguous RuntimeStatus = "ambiguous"
-)
-
-type RuntimeEvent struct {
-	SchemaVersion       string          `json:"schema_version"`
-	ID                  string          `json:"id"`
-	RunID               string          `json:"run_id"`
-	OperationID         string          `json:"operation_id"`
-	Sequence            uint64          `json:"sequence"`
-	Attempt             uint32          `json:"attempt"`
-	Kind                string          `json:"kind"`
-	From                *RuntimeStatus  `json:"from"`
-	To                  RuntimeStatus   `json:"to"`
-	OccurredAt          time.Time       `json:"occurred_at"`
-	RecordedAt          time.Time       `json:"recorded_at"`
-	Checkpoint          json.RawMessage `json:"checkpoint,omitempty"`
-	PreviousEventSHA256 string          `json:"previous_event_sha256,omitempty"`
-	EventSHA256         string          `json:"event_sha256"`
-}
-
-type Run struct {
-	ID              string          `json:"id"`
-	Status          RuntimeStatus   `json:"status"`
-	Sequence        uint64          `json:"sequence"`
-	Attempt         uint32          `json:"attempt"`
-	UpdatedAt       time.Time       `json:"updated_at"`
-	LastEventID     string          `json:"last_event_id"`
-	LastEventSHA256 string          `json:"last_event_sha256"`
-	Checkpoint      json.RawMessage `json:"checkpoint,omitempty"`
-	CheckpointAt    *time.Time      `json:"checkpoint_at,omitempty"`
-}
-
-type CreateRunInput struct {
-	ID          string `json:"id,omitempty"`
-	OperationID string `json:"operation_id,omitempty"`
-	Checkpoint  any    `json:"checkpoint,omitempty"`
-}
-
-type TransitionRunInput struct {
-	OperationID string        `json:"operation_id,omitempty"`
-	To          RuntimeStatus `json:"to"`
-	Checkpoint  any           `json:"checkpoint,omitempty"`
-}
-
-type CheckpointRunInput struct {
-	OperationID string `json:"operation_id,omitempty"`
-	Checkpoint  any    `json:"checkpoint"`
 }

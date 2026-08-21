@@ -3,13 +3,17 @@
 [![CI](https://github.com/Farfield-Dev/farfield/actions/workflows/ci.yml/badge.svg)](https://github.com/Farfield-Dev/farfield/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Farfield makes object storage the durable source of truth for agent history and execution.
+Farfield makes object storage the durable source of truth for agent history and traces.
 
-The project is building an open substrate for long-running agents: durable execution, complete history, replay, debugging, and observability without requiring a proprietary data silo. Authoritative records live in storage you control. Indexes, dashboards, and analytics are projections that can be rebuilt.
+The project is building an open observability substrate for agents: complete
+history, search, debugging, and inspectable evidence without a proprietary data
+silo. Authoritative records live in storage you control. Indexes, dashboards,
+and analytics are projections that can be rebuilt.
 
-> **Status:** pre-release. Immutable History and the first durable Runtime
-> journal work end to end. Worker scheduling, signals, timers, leases, and
-> automatic resumption are still roadmap work—not production-ready claims.
+> **Status:** pre-release. Immutable capture, OTLP ingestion, native SDKs,
+> search, timelines, verification, and the local inspector work end to end.
+> Authentication, tenant isolation, and shared distributed indexes are not yet
+> production-ready.
 
 ![Farfield inspector showing agent activity analytics, session history, timeline filters, and immutable event evidence.](docs/assets/farfield-inspector.jpg)
 
@@ -35,12 +39,6 @@ The project is building an open substrate for long-running agents: durable execu
 - Ingest OTLP/HTTP protobuf or JSON traces, including gzip and standard partial
   success, with idempotent durable acknowledgments.
 - Browse captured conversations in the embedded local inspector.
-- Create durable runs without a database or mutable state row.
-- Commit validated run transitions and canonical JSON checkpoints.
-- Retry every runtime operation with a stable idempotency key.
-- Reconstruct and verify attempt counts, current state, and the complete
-  hash-chained run journal.
-- Serialize concurrent run writers with one atomic object-store operation.
 - Capture and inspect History through native Python, TypeScript, and Go SDKs.
 - Batch high-volume capture through bounded, observable background processors
   with explicit flush and shutdown boundaries.
@@ -69,8 +67,7 @@ Open [http://127.0.0.1:8787](http://127.0.0.1:8787) to inspect the captured conv
 
 Each SDK has the same behavioral contract—durable acknowledgments, stable IDs,
 exact-body retries, scoped conversation metadata, typed errors, privacy hooks,
-batched segments, History reads, and Runtime access—expressed idiomatically for
-its language.
+batched segments, and History reads—expressed idiomatically for its language.
 
 ```python
 from farfield import Farfield
@@ -168,15 +165,6 @@ go run ./cmd/farfield history append \
 go run ./cmd/farfield history timeline --conversation conv_demo
 go run ./cmd/farfield history search --text '"shipped order" lookup*' --agent support-agent
 go run ./cmd/farfield history verify
-
-go run ./cmd/farfield runtime create \
-  --id run_demo --operation create --checkpoint '{"step":0}'
-go run ./cmd/farfield runtime transition \
-  --run run_demo --operation start --to running
-go run ./cmd/farfield runtime checkpoint \
-  --run run_demo --operation save_1 --checkpoint '{"step":1}'
-go run ./cmd/farfield runtime get --run run_demo
-go run ./cmd/farfield runtime verify
 ```
 
 An S3-compatible store uses the same commands:
@@ -198,7 +186,7 @@ farfield serve --store gs://my-bucket/farfield --listen 127.0.0.1:8787
 
 See the [real Python personal-agent example](examples/python-personal-agent/README.md)
 for a Claude web-research agent that records complete messages, tool calls,
-tool results, citations, usage, failures, and durable run checkpoints.
+tool results, citations, usage, failures, and trace context.
 
 ## Install
 
@@ -224,7 +212,7 @@ Python / TypeScript / Go SDKs · OTLP/HTTP · direct framework adapters
                 versioned protocols
                          ▼
                    Farfield core
-       ingest · history · runtime · query · replay
+         ingest · history · query · search · inspect
                          │
                          ▼
           GCS or S3-compatible object storage
@@ -234,18 +222,20 @@ Python / TypeScript / Go SDKs · OTLP/HTTP · direct framework adapters
           disposable indexes and product views
 ```
 
-The Go core owns storage semantics, ingestion, querying, runtime coordination, recovery, and the CLI/server. SDKs stay native to the language where an agent executes. The persisted protocol—not a Go API—is the platform boundary.
+The Go core owns storage semantics, ingestion, querying, verification, and the
+CLI/server. SDKs stay native to the language where an agent executes. The
+persisted protocol—not a Go API—is the platform boundary.
 
 See [docs/architecture.md](docs/architecture.md) for package boundaries,
 [docs/design](docs/design/README.md) for substantial design proposals, and
-[ROADMAP.md](ROADMAP.md) for the path from this first release to durable agent
-execution.
+[ROADMAP.md](ROADMAP.md) for the path from this first release to an
+object-storage-native agent observability platform.
 
 ## Current boundaries
 
-This first release is useful for durable agent capture, replay, inspection, and
-run journaling against storage you control. It is not yet a production
-multi-tenant observability backend or worker scheduler:
+This first release is useful for durable agent capture, search, reconstruction, and
+inspection against storage you control. It is not yet a production
+multi-tenant observability backend:
 
 - Conversation lists use a rebuildable object-backed projection with immutable
   deltas and checksummed snapshots. Timelines list only the selected
@@ -265,17 +255,16 @@ multi-tenant observability backend or worker scheduler:
   SDK conventions, but those conventions are still evolving. Raw attributes,
   events, links, resources, and scopes remain preserved so projections can be
   rebuilt as mappings change.
-- Runtime durably journals run state and checkpoints but does not yet schedule
-  workers, wake timers, deliver signals, fence leases, or execute user code.
 
-These constraints are deliberate and visible. Farfield will not describe a projection, runtime, or security property as production-ready before its recovery and conformance tests exist.
+These constraints are deliberate and visible. Farfield will not describe a
+projection or security property as production-ready before its recovery and
+conformance tests exist.
 
 ## Repository layout
 
 ```text
 cmd/farfield/          CLI and local server entrypoint
 history/               immutable agent-history domain
-runtime/               durable-execution protocol and state machine
 server/                HTTP API and embedded inspector
 ingest/                standard and framework protocol normalization
 storage/               object-storage contract and implementations
@@ -289,8 +278,8 @@ docs/                  design and operational documentation
 1. Acknowledged state must survive process loss.
 2. Object storage is authoritative; indexes are replaceable.
 3. Immutable facts are never silently overwritten.
-4. Run identity, conversation identity, and trace identity remain distinct.
-5. Existing agents can adopt History without adopting Farfield Runtime.
+4. Conversation identity and trace identity remain distinct.
+5. Existing agents can adopt Farfield without changing execution frameworks.
 6. Users can export and inspect their data without Farfield Cloud.
 
 ## Contributing

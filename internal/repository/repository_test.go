@@ -16,7 +16,6 @@ func TestPublicJSONFilesAreValid(t *testing.T) {
 	for _, path := range []string{
 		"protocol/history/v2/schema.json",
 		"protocol/history/v2/fixtures/segment.json",
-		"protocol/runtime/v1/schema.json",
 	} {
 		data, err := os.ReadFile(filepath.Join(root, path))
 		if err != nil {
@@ -42,11 +41,6 @@ func TestOpenAPIListsImplementedRoutes(t *testing.T) {
 		"/v1/history/records/{record_id}:",
 		"/v1/history/conversations:",
 		"/v1/history/conversations/{conversation_id}/timeline:",
-		"/v1/runtime/runs:",
-		"/v1/runtime/runs/{run_id}:",
-		"/v1/runtime/runs/{run_id}/events:",
-		"/v1/runtime/runs/{run_id}/transitions:",
-		"/v1/runtime/runs/{run_id}/checkpoints:",
 	} {
 		if !strings.Contains(text, route) {
 			t.Fatalf("openapi.yaml does not contain %s", route)

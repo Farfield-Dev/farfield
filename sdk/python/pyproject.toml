@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "farfield"
 version = "0.1.0a1"
-description = "Durable agent history and execution, stored in object storage you control"
+description = "Durable agent history and traces in object storage you control"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 authors = [{name = "Farfield contributors"}]
-keywords = ["agents", "observability", "durable-execution", "s3"]
+keywords = ["agents", "observability", "tracing", "s3"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",

@@ -1,6 +1,6 @@
 # Farfield Python SDK
 
-Durable agent history and execution, with Python-native sync and async APIs.
+Durable agent history with Python-native sync and async APIs.
 
 ```bash
 pip install farfield
@@ -101,13 +101,11 @@ def before_send(event: Event) -> Event | None:
 ff = Farfield(before_send=before_send)
 ```
 
-## Explore and resume
+## Explore
 
 ```python
 records = ff.query(agent="support-agent", kind="tool.result", limit=50)
 conversations = ff.conversations(limit=20)
-run = ff.get_run("run_123")
-events = ff.run_events(run.id)
 ```
 
 The core package has no runtime dependencies and supports Python 3.10+.

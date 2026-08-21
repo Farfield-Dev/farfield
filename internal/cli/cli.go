@@ -19,7 +19,6 @@ import (
 	"github.com/Farfield-Dev/farfield/history"
 	"github.com/Farfield-Dev/farfield/internal/buildinfo"
 	"github.com/Farfield-Dev/farfield/internal/storeopen"
-	farfieldruntime "github.com/Farfield-Dev/farfield/runtime"
 	farfieldserver "github.com/Farfield-Dev/farfield/server"
 )
 
@@ -34,8 +33,6 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		return 0
 	case "history":
 		return runHistory(arguments[1:], stdout, stderr)
-	case "runtime":
-		return runRuntime(arguments[1:], stdout, stderr)
 	case "serve":
 		return runServer(arguments[1:], stdout, stderr)
 	case "help", "--help", "-h":
@@ -46,190 +43,6 @@ func Run(arguments []string, stdout, stderr io.Writer) int {
 		usage(stderr)
 		return 2
 	}
-}
-
-func runRuntime(arguments []string, stdout, stderr io.Writer) int {
-	if len(arguments) == 0 {
-		runtimeUsage(stderr)
-		return 2
-	}
-	switch arguments[0] {
-	case "create":
-		return createRun(arguments[1:], stdout, stderr)
-	case "get":
-		return getRun(arguments[1:], stdout, stderr)
-	case "events":
-		return runEvents(arguments[1:], stdout, stderr)
-	case "transition":
-		return transitionRun(arguments[1:], stdout, stderr)
-	case "checkpoint":
-		return saveRunCheckpoint(arguments[1:], stdout, stderr)
-	case "verify":
-		return verifyRuntime(arguments[1:], stdout, stderr)
-	default:
-		fmt.Fprintf(stderr, "unknown runtime command %q\n\n", arguments[0])
-		runtimeUsage(stderr)
-		return 2
-	}
-}
-
-func createRun(arguments []string, stdout, stderr io.Writer) int {
-	set := flag.NewFlagSet("runtime create", flag.ContinueOnError)
-	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
-	runID := set.String("id", "", "stable run ID; generated when omitted")
-	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
-	checkpoint := set.String("checkpoint", "", "optional JSON checkpoint")
-	if err := set.Parse(arguments); err != nil {
-		return 2
-	}
-	if *operationID == "" {
-		fmt.Fprintln(stderr, "--operation is required")
-		return 2
-	}
-	journal, err := openRuntime(context.Background(), *storeURI)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	event, err := journal.Create(context.Background(), farfieldruntime.CreateInput{
-		RunID: *runID, OperationID: *operationID, Checkpoint: optionalJSON(*checkpoint),
-	})
-	if err != nil {
-		return printError(stderr, err)
-	}
-	return printJSON(stdout, event)
-}
-
-func getRun(arguments []string, stdout, stderr io.Writer) int {
-	set := flag.NewFlagSet("runtime get", flag.ContinueOnError)
-	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
-	runID := set.String("run", "", "run ID")
-	if err := set.Parse(arguments); err != nil {
-		return 2
-	}
-	if *runID == "" {
-		fmt.Fprintln(stderr, "--run is required")
-		return 2
-	}
-	journal, err := openRuntime(context.Background(), *storeURI)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	run, err := journal.Get(context.Background(), *runID)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	return printJSON(stdout, run)
-}
-
-func runEvents(arguments []string, stdout, stderr io.Writer) int {
-	set := flag.NewFlagSet("runtime events", flag.ContinueOnError)
-	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
-	runID := set.String("run", "", "run ID")
-	if err := set.Parse(arguments); err != nil {
-		return 2
-	}
-	if *runID == "" {
-		fmt.Fprintln(stderr, "--run is required")
-		return 2
-	}
-	journal, err := openRuntime(context.Background(), *storeURI)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	events, err := journal.Events(context.Background(), *runID)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	return printJSON(stdout, events)
-}
-
-func transitionRun(arguments []string, stdout, stderr io.Writer) int {
-	set := flag.NewFlagSet("runtime transition", flag.ContinueOnError)
-	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
-	runID := set.String("run", "", "run ID")
-	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
-	to := set.String("to", "", "target status")
-	checkpoint := set.String("checkpoint", "", "optional JSON checkpoint")
-	if err := set.Parse(arguments); err != nil {
-		return 2
-	}
-	if *runID == "" || *operationID == "" || *to == "" {
-		fmt.Fprintln(stderr, "--run, --operation, and --to are required")
-		return 2
-	}
-	journal, err := openRuntime(context.Background(), *storeURI)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	event, err := journal.Transition(context.Background(), farfieldruntime.TransitionInput{
-		RunID: *runID, OperationID: *operationID, To: farfieldruntime.Status(*to), Checkpoint: optionalJSON(*checkpoint),
-	})
-	if err != nil {
-		return printError(stderr, err)
-	}
-	return printJSON(stdout, event)
-}
-
-func saveRunCheckpoint(arguments []string, stdout, stderr io.Writer) int {
-	set := flag.NewFlagSet("runtime checkpoint", flag.ContinueOnError)
-	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
-	runID := set.String("run", "", "run ID")
-	operationID := set.String("operation", "", "stable operation ID for idempotent retries")
-	checkpoint := set.String("checkpoint", "", "JSON checkpoint")
-	if err := set.Parse(arguments); err != nil {
-		return 2
-	}
-	if *runID == "" || *operationID == "" || *checkpoint == "" {
-		fmt.Fprintln(stderr, "--run, --operation, and --checkpoint are required")
-		return 2
-	}
-	journal, err := openRuntime(context.Background(), *storeURI)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	event, err := journal.SaveCheckpoint(context.Background(), farfieldruntime.CheckpointInput{
-		RunID: *runID, OperationID: *operationID, Checkpoint: []byte(*checkpoint),
-	})
-	if err != nil {
-		return printError(stderr, err)
-	}
-	return printJSON(stdout, event)
-}
-
-func verifyRuntime(arguments []string, stdout, stderr io.Writer) int {
-	set := flag.NewFlagSet("runtime verify", flag.ContinueOnError)
-	set.SetOutput(stderr)
-	storeURI := set.String("store", ".farfield/objects", "local path, file://, s3://, or gs:// URI")
-	if err := set.Parse(arguments); err != nil {
-		return 2
-	}
-	journal, err := openRuntime(context.Background(), *storeURI)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	result, err := journal.Verify(context.Background())
-	if err != nil {
-		return printError(stderr, err)
-	}
-	if code := printJSON(stdout, result); code != 0 {
-		return code
-	}
-	if !result.OK {
-		return 1
-	}
-	return 0
-}
-
-func optionalJSON(value string) []byte {
-	if value == "" {
-		return nil
-	}
-	return []byte(value)
 }
 
 func runHistory(arguments []string, stdout, stderr io.Writer) int {
@@ -590,11 +403,7 @@ func runServer(arguments []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return printError(stderr, err)
 	}
-	journal, err := farfieldruntime.NewJournal(store)
-	if err != nil {
-		return printError(stderr, err)
-	}
-	httpServer, err := farfieldserver.New(service, farfieldserver.WithRuntime(journal))
+	httpServer, err := farfieldserver.New(service)
 	if err != nil {
 		return printError(stderr, err)
 	}
@@ -758,14 +567,6 @@ func resolveSearchCachePath(storeDescription, requested string) (string, error) 
 	return filepath.Join(root, "farfield", "search", hex.EncodeToString(digest[:])+".json.gz"), nil
 }
 
-func openRuntime(ctx context.Context, uri string) (*farfieldruntime.Journal, error) {
-	store, err := storeopen.Open(ctx, uri)
-	if err != nil {
-		return nil, err
-	}
-	return farfieldruntime.NewJournal(store)
-}
-
 func printJSON(writer io.Writer, value any) int {
 	encoder := json.NewEncoder(writer)
 	encoder.SetEscapeHTML(false)
@@ -778,11 +579,6 @@ func printJSON(writer io.Writer, value any) int {
 }
 
 func printError(stderr io.Writer, err error) int {
-	var runtimeError *farfieldruntime.Error
-	if errors.As(err, &runtimeError) {
-		fmt.Fprintf(stderr, "%s: %s\n", runtimeError.Code, runtimeError.Message)
-		return 1
-	}
 	var domainError *history.Error
 	if errors.As(err, &domainError) {
 		fmt.Fprintf(stderr, "%s: %s\n", domainError.Code, domainError.Message)
@@ -793,15 +589,14 @@ func printError(stderr io.Writer, err error) int {
 }
 
 func usage(writer io.Writer) {
-	fmt.Fprintln(writer, strings.TrimSpace(`Farfield — durable history and execution for agents
+	fmt.Fprintln(writer, strings.TrimSpace(`Farfield — durable agent history on object storage
 
 Usage:
   farfield history <command>
-	farfield runtime <command>
   farfield serve [--store URI] [--listen ADDRESS]
   farfield version
 
-Run "farfield history" or "farfield runtime" for command help.`))
+Run "farfield history" for command help.`))
 }
 
 func historyUsage(writer io.Writer) {
@@ -817,14 +612,4 @@ func historyUsage(writer io.Writer) {
   farfield history projections rebuild [--store URI]
   farfield history timeline --conversation ID [--store URI]
   farfield history verify [--store URI]`))
-}
-
-func runtimeUsage(writer io.Writer) {
-	fmt.Fprintln(writer, strings.TrimSpace(`Usage:
-  farfield runtime create --operation ID [--id ID] [--checkpoint JSON] [--store URI]
-  farfield runtime get --run ID [--store URI]
-  farfield runtime events --run ID [--store URI]
-  farfield runtime transition --run ID --operation ID --to STATUS [--checkpoint JSON] [--store URI]
-  farfield runtime checkpoint --run ID --operation ID --checkpoint JSON [--store URI]
-  farfield runtime verify [--store URI]`))
 }

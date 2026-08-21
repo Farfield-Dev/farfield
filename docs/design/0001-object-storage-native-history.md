@@ -61,7 +61,7 @@ The history engine should satisfy the following constraints:
    published protocol alone.
 6. The portable baseline works on conforming S3-compatible storage. Native S3
    and GCS adapters may expose optional performance capabilities.
-7. Conversation, trace, and run identity remain independent.
+7. Conversation and trace identity remain independent.
 
 Building a general-purpose transactional database is not a goal. The design
 should exploit the append-heavy workload and known query dimensions of agent
@@ -77,8 +77,8 @@ range-pack, and compaction ideas below remain forward-looking scale work.
 
 Ingestion groups logical events into immutable segments. A segment is flushed
 when a short time window expires, it reaches a target size, or a caller requests
-a durable checkpoint. Events from multiple conversations may share a segment
-when they map to the same storage shard.
+an explicit durable flush. Events from multiple conversations may share a
+segment when they map to the same storage shard.
 
 Ordinary event payloads are stored inline. Large or independently reusable
 artifacts remain content-addressed blobs. This avoids the two-object write and
@@ -86,8 +86,8 @@ read amplification of storing every event body separately while preserving
 deduplication for expensive artifacts.
 
 The API should distinguish buffered acceptance from durable acknowledgment.
-Tracing can favor low-overhead buffering; execution checkpoints can wait until
-the containing segment has been committed to object storage.
+Background capture can favor low-overhead buffering; explicit flush and
+shutdown wait until the containing segment has committed to object storage.
 
 ### Sharded manifests
 

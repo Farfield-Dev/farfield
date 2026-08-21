@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/Farfield-Dev/farfield/history"
-	farfieldruntime "github.com/Farfield-Dev/farfield/runtime"
 	"github.com/Farfield-Dev/farfield/storage"
 )
 
@@ -112,95 +111,5 @@ func TestHealthAndUI(t *testing.T) {
 	server.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("missing UI asset = %d", response.Code)
-	}
-}
-
-func TestRuntimeHTTPRoundTrip(t *testing.T) {
-	t.Parallel()
-	store, err := storage.OpenLocal(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	historyService, err := history.New(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	journal, err := farfieldruntime.NewJournal(store)
-	if err != nil {
-		t.Fatal(err)
-	}
-	server, err := New(historyService, WithRuntime(journal))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/runtime/runs", bytes.NewReader([]byte(`{"id":"run_http","operation_id":"create","checkpoint":{"step":0}}`)))
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated {
-		t.Fatalf("create status = %d; body = %s", response.Code, response.Body.String())
-	}
-
-	request = httptest.NewRequest(http.MethodPost, "/v1/runtime/runs/run_http/transitions", bytes.NewReader([]byte(`{"operation_id":"start","to":"running"}`)))
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated {
-		t.Fatalf("transition status = %d; body = %s", response.Code, response.Body.String())
-	}
-
-	request = httptest.NewRequest(http.MethodPost, "/v1/runtime/runs/run_http/checkpoints", bytes.NewReader([]byte(`{"operation_id":"save","checkpoint":{"step":1}}`)))
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated {
-		t.Fatalf("checkpoint status = %d; body = %s", response.Code, response.Body.String())
-	}
-
-	request = httptest.NewRequest(http.MethodGet, "/v1/runtime/runs/run_http", nil)
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("get status = %d; body = %s", response.Code, response.Body.String())
-	}
-	var run farfieldruntime.Run
-	if err := json.Unmarshal(response.Body.Bytes(), &run); err != nil {
-		t.Fatal(err)
-	}
-	if run.Status != farfieldruntime.StatusRunning || run.Sequence != 2 || string(run.Checkpoint) != `{"step":1}` {
-		t.Fatalf("run = %#v", run)
-	}
-
-	request = httptest.NewRequest(http.MethodGet, "/v1/runtime/runs/run_http/events", nil)
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK {
-		t.Fatalf("events status = %d; body = %s", response.Code, response.Body.String())
-	}
-	var events []farfieldruntime.Event
-	if err := json.Unmarshal(response.Body.Bytes(), &events); err != nil {
-		t.Fatal(err)
-	}
-	if len(events) != 3 {
-		t.Fatalf("events = %d, want 3", len(events))
-	}
-}
-
-func TestRuntimeHTTPRejectsInvalidTransition(t *testing.T) {
-	t.Parallel()
-	store, _ := storage.OpenLocal(t.TempDir())
-	historyService, _ := history.New(store)
-	journal, _ := farfieldruntime.NewJournal(store)
-	server, _ := New(historyService, WithRuntime(journal))
-
-	request := httptest.NewRequest(http.MethodPost, "/v1/runtime/runs", bytes.NewReader([]byte(`{"id":"run_invalid","operation_id":"create"}`)))
-	response := httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusCreated {
-		t.Fatalf("create status = %d; body = %s", response.Code, response.Body.String())
-	}
-	request = httptest.NewRequest(http.MethodPost, "/v1/runtime/runs/run_invalid/transitions", bytes.NewReader([]byte(`{"operation_id":"finish","to":"completed"}`)))
-	response = httptest.NewRecorder()
-	server.Handler().ServeHTTP(response, request)
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("transition status = %d; body = %s", response.Code, response.Body.String())
 	}
 }

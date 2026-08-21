@@ -19,8 +19,7 @@ python -W error::ResourceWarning -m unittest discover -s tests -v
 Keep packages narrow and dependency direction explicit:
 
 - Domain packages may depend on `storage` and private helpers.
-- `storage` must not depend on History or Runtime.
-- History must not require Runtime.
+- `storage` must not depend on History.
 - SDK-specific types must not enter persisted protocols.
 - Shared code belongs in a named domain package or `internal/`, not a generic `utils` package.
 

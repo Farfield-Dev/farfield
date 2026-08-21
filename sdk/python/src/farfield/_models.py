@@ -194,52 +194,6 @@ class Segment:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeEvent:
-    id: str
-    run_id: str
-    operation_id: str
-    to: str
-    sequence: int = 0
-    attempt: int = 0
-    kind: str | None = None
-    raw: dict[str, Any] = field(default_factory=_empty_raw, repr=False)
-
-    @classmethod
-    def from_payload(cls, value: Mapping[str, Any]) -> RuntimeEvent:
-        return cls(
-            id=str(value.get("id", "")),
-            run_id=str(value.get("run_id", "")),
-            operation_id=str(value.get("operation_id", "")),
-            to=str(value.get("to", "")),
-            sequence=int(value.get("sequence", 0)),
-            attempt=int(value.get("attempt", 0)),
-            kind=_optional_string(value.get("kind")),
-            raw=dict(value),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Run:
-    id: str
-    status: str
-    sequence: int = 0
-    attempt: int = 0
-    checkpoint: JSON = None
-    raw: dict[str, Any] = field(default_factory=_empty_raw, repr=False)
-
-    @classmethod
-    def from_payload(cls, value: Mapping[str, Any]) -> Run:
-        return cls(
-            id=str(value.get("id", "")),
-            status=str(value.get("status", "")),
-            sequence=int(value.get("sequence", 0)),
-            attempt=int(value.get("attempt", 0)),
-            checkpoint=value.get("checkpoint"),
-            raw=dict(value),
-        )
-
-
 def _timestamp(value: datetime | None) -> str | None:
     if value is None:
         return None

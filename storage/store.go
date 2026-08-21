@@ -20,7 +20,7 @@ type PutOptions struct {
 // Store is deliberately object-shaped rather than filesystem-shaped.
 // PutIfAbsent must be atomic: a backend that implements HEAD followed by PUT
 // does not satisfy this interface. Once PutIfAbsent succeeds, later Get and
-// List calls must observe the object; the runtime journal depends on strong
+// List calls must observe the object; immutable projections depend on strong
 // read-after-write and list consistency.
 type Store interface {
 	Description() string

@@ -734,7 +734,7 @@ function CodeBlock({ value, inset = false }: { value: JSONValue; inset?: boolean
 }
 
 function InspectorEmpty() {
-  return <main className="hairline-grid grid min-w-0 flex-1 place-items-center"><div className="text-center"><Box size={26} className="mx-auto text-ink-faint" /><p className="mt-3 text-sm font-medium text-ink-secondary">Select a session</p><p className="mt-1 text-xs text-ink-faint">Inspect its execution timeline and immutable evidence.</p></div></main>;
+  return <main className="hairline-grid grid min-w-0 flex-1 place-items-center"><div className="text-center"><Box size={26} className="mx-auto text-ink-faint" /><p className="mt-3 text-sm font-medium text-ink-secondary">Select a session</p><p className="mt-1 text-xs text-ink-faint">Inspect its trace timeline and immutable evidence.</p></div></main>;
 }
 
 function InspectorLoading({ conversation }: { conversation: ConversationSummary }) {

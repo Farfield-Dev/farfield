@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Farfield API
   version: 0.1.0-alpha.1
-  description: Immutable agent History plus a durable, object-storage-native run journal. The pre-release server has no built-in authentication.
+  description: Immutable, searchable agent history on object storage. The pre-release server has no built-in authentication.
   license:
     name: Apache-2.0
     identifier: Apache-2.0
@@ -178,86 +178,6 @@ paths:
                 type: array
                 items: {$ref: "#/components/schemas/Entry"}
         "404": {$ref: "#/components/responses/Error"}
-  /v1/runtime/runs:
-    post:
-      summary: Create a durable run journal
-      operationId: createRuntimeRun
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: "#/components/schemas/CreateRun"}
-      responses:
-        "201":
-          description: Creation event committed or idempotently recovered
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/RuntimeEvent"}
-        "409": {$ref: "#/components/responses/Error"}
-  /v1/runtime/runs/{run_id}:
-    get:
-      summary: Reconstruct the current run state from its journal
-      operationId: getRuntimeRun
-      parameters:
-        - {in: path, name: run_id, required: true, schema: {type: string}}
-      responses:
-        "200":
-          description: Verified reduced run state
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/Run"}
-        "404": {$ref: "#/components/responses/Error"}
-  /v1/runtime/runs/{run_id}/events:
-    get:
-      summary: Read and verify a complete run event chain
-      operationId: getRuntimeRunEvents
-      parameters:
-        - {in: path, name: run_id, required: true, schema: {type: string}}
-      responses:
-        "200":
-          description: Events in contiguous sequence order
-          content:
-            application/json:
-              schema:
-                type: array
-                items: {$ref: "#/components/schemas/RuntimeEvent"}
-        "404": {$ref: "#/components/responses/Error"}
-  /v1/runtime/runs/{run_id}/transitions:
-    post:
-      summary: Commit the next valid run transition
-      operationId: transitionRuntimeRun
-      parameters:
-        - {in: path, name: run_id, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: "#/components/schemas/TransitionRun"}
-      responses:
-        "201":
-          description: Transition committed or idempotently recovered
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/RuntimeEvent"}
-        "409": {$ref: "#/components/responses/Error"}
-  /v1/runtime/runs/{run_id}/checkpoints:
-    post:
-      summary: Commit a checkpoint without changing run status
-      operationId: checkpointRuntimeRun
-      parameters:
-        - {in: path, name: run_id, required: true, schema: {type: string}}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: {$ref: "#/components/schemas/CheckpointRun"}
-      responses:
-        "201":
-          description: Checkpoint committed or idempotently recovered
-          content:
-            application/json:
-              schema: {$ref: "#/components/schemas/RuntimeEvent"}
-        "409": {$ref: "#/components/responses/Error"}
 components:
   responses:
     Error:
@@ -376,66 +296,6 @@ components:
         took_ms: {type: number, minimum: 0}
         indexed_records: {type: integer, minimum: 0}
         index_updated_at: {type: string, format: date-time}
-    RuntimeStatus:
-      type: string
-      enum: [queued, running, waiting, sleeping, completed, failed, cancelled, ambiguous]
-    CreateRun:
-      type: object
-      required: [operation_id]
-      properties:
-        id: {type: string, description: Stable run ID; generated when omitted}
-        operation_id: {type: string, description: Stable idempotency key}
-        checkpoint: {}
-      additionalProperties: false
-    TransitionRun:
-      type: object
-      required: [operation_id, to]
-      properties:
-        operation_id: {type: string, description: Stable idempotency key}
-        to: {$ref: "#/components/schemas/RuntimeStatus"}
-        checkpoint: {}
-      additionalProperties: false
-    CheckpointRun:
-      type: object
-      required: [operation_id, checkpoint]
-      properties:
-        operation_id: {type: string, description: Stable idempotency key}
-        checkpoint: {}
-      additionalProperties: false
-    RuntimeEvent:
-      type: object
-      required: [schema_version, id, run_id, operation_id, sequence, attempt, kind, from, to, occurred_at, recorded_at, event_sha256]
-      properties:
-        schema_version: {const: farfield.runtime.event.v1}
-        id: {type: string}
-        run_id: {type: string}
-        operation_id: {type: string}
-        sequence: {type: integer, minimum: 0}
-        attempt: {type: integer, minimum: 0}
-        kind: {type: string, enum: [run.created, run.transition, run.checkpoint]}
-        from:
-          oneOf:
-            - {$ref: "#/components/schemas/RuntimeStatus"}
-            - {type: "null"}
-        to: {$ref: "#/components/schemas/RuntimeStatus"}
-        occurred_at: {type: string, format: date-time}
-        recorded_at: {type: string, format: date-time}
-        checkpoint: {}
-        previous_event_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
-        event_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
-    Run:
-      type: object
-      required: [id, status, sequence, attempt, updated_at, last_event_id, last_event_sha256]
-      properties:
-        id: {type: string}
-        status: {$ref: "#/components/schemas/RuntimeStatus"}
-        sequence: {type: integer, minimum: 0}
-        attempt: {type: integer, minimum: 0}
-        updated_at: {type: string, format: date-time}
-        last_event_id: {type: string}
-        last_event_sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
-        checkpoint: {}
-        checkpoint_at: {type: string, format: date-time}
     Error:
       type: object
       required: [error]

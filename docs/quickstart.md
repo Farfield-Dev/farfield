@@ -84,38 +84,6 @@ the conversation projection from authoritative History, run:
 go run ./cmd/farfield history projections rebuild
 ```
 
-## Journal a durable run
-
-The first Runtime slice uses the same object store and does not need a database:
-
-```bash
-go run ./cmd/farfield runtime create \
-  --id run_support_123 \
-  --operation create \
-  --checkpoint '{"next":"classify"}'
-
-go run ./cmd/farfield runtime transition \
-  --run run_support_123 \
-  --operation start_attempt_1 \
-  --to running
-
-go run ./cmd/farfield runtime checkpoint \
-  --run run_support_123 \
-  --operation classified \
-  --checkpoint '{"next":"reply","category":"shipping"}'
-
-go run ./cmd/farfield runtime get --run run_support_123
-go run ./cmd/farfield runtime events --run run_support_123
-go run ./cmd/farfield runtime verify
-```
-
-Operation IDs are stable idempotency keys. If a process loses the response to a
-committed write, repeat the exact command with the same operation ID. Reusing
-an operation ID for different input returns a conflict.
-
-This journals and verifies execution state; it does not yet run or schedule the
-agent on your behalf.
-
 ## Use S3-compatible storage
 
 ```bash
@@ -158,5 +126,5 @@ recovered by repeating the exact write.
 
 The [Python personal-agent example](../examples/python-personal-agent/README.md)
 is a complete GCS-backed integration: it runs live Anthropic web research,
-captures provider and semantic events, journals each run, and queries the
-retained trace through the SDK, CLI, API, and embedded inspector.
+captures provider and semantic events, and queries the retained trace through
+the SDK, CLI, API, and embedded inspector.

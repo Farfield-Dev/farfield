@@ -10,7 +10,7 @@ and execute.
 All three use the versioned HTTP protocol and share the same behavioral
 contract: stable IDs, exact-body retries, durable capture, explicit batching,
 bounded background processors, conversation context, privacy hooks, typed
-errors, and Runtime journal access. They do not duplicate the object-storage
+errors, and History reads. They do not duplicate the object-storage
 implementation.
 
 Python and TypeScript also ship optional direct adapters for OpenAI Agents and

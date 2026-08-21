@@ -10,9 +10,6 @@ import type {
   Json,
   Query,
   RequestOptions,
-  Run,
-  RunStatus,
-  RuntimeEvent,
   SearchQuery,
   SearchResult,
   Scope,
@@ -38,22 +35,6 @@ export interface FarfieldOptions {
 
 export interface ConversationOptions extends Omit<Scope, "conversationId"> {
   id?: string;
-}
-
-export interface CreateRunInput {
-  id?: string;
-  operationId?: string;
-  checkpoint?: Json;
-}
-
-export interface TransitionRunInput {
-  operationId?: string;
-  checkpoint?: Json;
-}
-
-export interface CheckpointRunInput {
-  operationId?: string;
-  checkpoint: Json;
 }
 
 export class Farfield {
@@ -200,46 +181,6 @@ export class Farfield {
   async health(options: RequestOptions = {}): Promise<boolean> {
     const value = await this.#request<{ ok: boolean; service: string }>("GET", "/v1/health", undefined, options);
     return value.ok && value.service === "farfield";
-  }
-
-  createRun(input: CreateRunInput = {}, options: RequestOptions = {}): Promise<RuntimeEvent> {
-    return this.#request(
-      "POST",
-      "/v1/runtime/runs",
-      compact({ id: input.id ?? id("run_"), operation_id: input.operationId ?? id("op_"), checkpoint: input.checkpoint }),
-      options,
-    );
-  }
-
-  getRun(runId: string, options: RequestOptions = {}): Promise<Run> {
-    return this.#request("GET", `/v1/runtime/runs/${encodeURIComponent(runId)}`, undefined, options);
-  }
-
-  runEvents(runId: string, options: RequestOptions = {}): Promise<RuntimeEvent[]> {
-    return this.#request("GET", `/v1/runtime/runs/${encodeURIComponent(runId)}/events`, undefined, options);
-  }
-
-  transitionRun(
-    runId: string,
-    to: RunStatus,
-    input: TransitionRunInput = {},
-    options: RequestOptions = {},
-  ): Promise<RuntimeEvent> {
-    return this.#request(
-      "POST",
-      `/v1/runtime/runs/${encodeURIComponent(runId)}/transitions`,
-      compact({ operation_id: input.operationId ?? id("op_"), to, checkpoint: input.checkpoint }),
-      options,
-    );
-  }
-
-  checkpointRun(runId: string, input: CheckpointRunInput, options: RequestOptions = {}): Promise<RuntimeEvent> {
-    return this.#request(
-      "POST",
-      `/v1/runtime/runs/${encodeURIComponent(runId)}/checkpoints`,
-      { operation_id: input.operationId ?? id("op_"), checkpoint: input.checkpoint },
-      options,
-    );
   }
 
   /** Snapshot caller-local scope and privacy policy without sending the event. */
