@@ -11,6 +11,8 @@ The project is building an open substrate for long-running agents: durable execu
 > journal work end to end. Worker scheduling, signals, timers, leases, and
 > automatic resumption are still roadmap work—not production-ready claims.
 
+![Farfield inspector showing agent activity analytics, session history, timeline filters, and immutable event evidence.](docs/assets/farfield-inspector.jpg)
+
 ## What works now
 
 - Append canonical JSON events to query-aligned, conversation-local segments.
