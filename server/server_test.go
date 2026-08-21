@@ -107,6 +107,12 @@ func TestHealthAndUI(t *testing.T) {
 			t.Fatalf("GET %s = %d", path, response.Code)
 		}
 	}
+	request := httptest.NewRequest(http.MethodGet, "/missing-ui-asset.js", nil)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("missing UI asset = %d", response.Code)
+	}
 }
 
 func TestRuntimeHTTPRoundTrip(t *testing.T) {

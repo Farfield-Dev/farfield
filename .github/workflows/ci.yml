@@ -26,6 +26,13 @@ jobs:
       - run: test -z "$(gofmt -l $(find . -name '*.go' -not -path './vendor/*'))"
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Inspector UI
+        run: |
+          npm ci --prefix server/ui
+          npm run check --prefix server/ui
+          npm test --prefix server/ui
+          npm run build --prefix server/ui
+          git diff --exit-code -- server/ui/dist
       - name: TypeScript SDK
         run: npm ci --prefix sdk/typescript && npm run check --prefix sdk/typescript
       - name: Python SDK

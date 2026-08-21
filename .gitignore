@@ -12,4 +12,6 @@ __pycache__/
 bin/
 coverage.out
 dist/
+!server/ui/dist/
+!server/ui/dist/**
 node_modules/
