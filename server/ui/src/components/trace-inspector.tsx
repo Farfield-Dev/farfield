@@ -18,7 +18,6 @@ import {
   UserRound,
   Wrench,
   XCircle,
-  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
@@ -27,8 +26,6 @@ import { Button } from "../design-system/button";
 import { Panel } from "../design-system/panel";
 import {
   analyzeSession,
-  eventCategory,
-  previewForEntry,
   type ConversationSummary,
   type JSONValue,
   type TimelineEntry,
@@ -44,6 +41,15 @@ import {
   type ContextMode,
   type FilterField,
 } from "../lib/timeline-filter";
+import {
+  buildTraceOperations,
+  operationMatchesFocus,
+  operationsForDensity,
+  rawTraceOperations,
+  type TraceDensity,
+  type TraceFocus,
+  type TraceOperation,
+} from "../lib/trace-operations";
 
 type InspectorProps = {
   conversation: ConversationSummary | null;
@@ -51,33 +57,32 @@ type InspectorProps = {
   loading: boolean;
   error: string | null;
   onRetry: () => void;
-  onCompare: () => void;
 };
 
 type DetailTab = "rendered" | "json";
-type DisplayEntry = TimelineEntry & { groupedCount?: number };
 
 const contextLabels: Record<ContextMode, string> = { matches: "Matches", context: "Context", full: "Full" };
-const facetDefinitions = [
-  { label: "Errors", token: "status:error|failed|cancelled", query: "status:error|failed|cancelled" },
-  { label: "Tools", token: "kind:tool.", query: "kind:tool." },
-  { label: "Messages", token: "kind:message.", query: "kind:message." },
-  { label: "Model I/O", token: "kind:model.", query: "kind:model." },
-  { label: "Turns", token: "kind:agent.turn", query: "kind:agent.turn" },
-] as const;
+const densityLabels: Record<TraceDensity, string> = { overview: "Overview", trace: "Trace", records: "Records" };
+const focusLabels: Record<TraceFocus, string> = { all: "All", tools: "Tools", slow: "Slow", errors: "Errors" };
 
 function initialContextMode(): ContextMode {
   const value = new URLSearchParams(window.location.search).get("timeline_context");
   return value === "matches" || value === "full" ? value : "context";
 }
 
+function initialDensity(): TraceDensity {
+  const value = new URLSearchParams(window.location.search).get("trace_density");
+  return value === "overview" || value === "records" ? value : "trace";
+}
+
+function initialFocus(): TraceFocus {
+  const value = new URLSearchParams(window.location.search).get("trace_focus");
+  return value === "tools" || value === "slow" || value === "errors" ? value : "all";
+}
+
 function appendQueryToken(query: string, token: string) {
   const normalized = query.trim();
   return normalized ? `${normalized} ${token}` : token;
-}
-
-function removeQueryToken(query: string, token: string) {
-  return query.split(/\s+/).filter((value) => value !== token).join(" ");
 }
 
 const categoryMeta = {
@@ -98,46 +103,17 @@ const timelineIconClasses = {
   event: "text-ink-muted",
 };
 
+const traceMapClasses = {
+  agent: "bg-ink-faint",
+  message: "bg-ink-muted",
+  model: "bg-stroke-focus",
+  tool: "bg-accent/65",
+  test: "bg-success/60",
+  event: "bg-ink-faint",
+};
+
 function asObject(value: JSONValue): Record<string, JSONValue> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-
-function groupTimeline(entries: TimelineEntry[]): DisplayEntry[] {
-  const result: DisplayEntry[] = [];
-  for (const entry of entries) {
-    const previous = result.at(-1);
-    if (
-      entry.record.kind === "message.assistant" &&
-      previous?.record.kind === "message.assistant" &&
-      previous.record.trace_id === entry.record.trace_id
-    ) {
-      const previousContent = asObject(previous.content);
-      const content = asObject(entry.content);
-      if (previousContent && content && typeof previousContent.text === "string" && typeof content.text === "string") {
-        previous.content = { ...previousContent, text: `${previousContent.text}${content.text}` };
-        previous.groupedCount = (previous.groupedCount ?? 1) + 1;
-        previous.record = { ...previous.record, occurred_at: entry.record.occurred_at };
-        continue;
-      }
-    }
-    result.push({ ...entry, record: { ...entry.record }, content: structuredClone(entry.content), groupedCount: 1 });
-  }
-  return result;
-}
-
-function eventTitle(entry: TimelineEntry) {
-  const content = asObject(entry.content);
-  switch (entry.record.kind) {
-    case "agent.turn.started": return "Agent turn started";
-    case "agent.turn.completed": return "Agent turn completed";
-    case "message.user": return "User message";
-    case "message.assistant": return "Assistant response";
-    case "model.request": return typeof content?.model === "string" ? content.model : "Model request";
-    case "model.response": return "Model response";
-    case "tool.call": return `${entry.record.tool ?? content?.name ?? "Tool"} call`;
-    case "tool.result": return `${entry.record.tool ?? "Tool"} result`;
-    default: return entry.record.kind;
-  }
 }
 
 function promptTitle(prompt: string | null, conversation: ConversationSummary) {
@@ -147,32 +123,39 @@ function promptTitle(prompt: string | null, conversation: ConversationSummary) {
   return sentence ?? `${clean.slice(0, 104)}${clean.length > 104 ? "…" : ""}`;
 }
 
-export function TraceInspector({ conversation, entries, loading, error, onRetry, onCompare }: InspectorProps) {
+export function TraceInspector({ conversation, entries, loading, error, onRetry }: InspectorProps) {
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [timelineQuery, setTimelineQuery] = useState(() => new URLSearchParams(window.location.search).get("timeline") ?? "");
   const [contextMode, setContextMode] = useState<ContextMode>(initialContextMode);
+  const [density, setDensity] = useState<TraceDensity>(initialDensity);
+  const [focus, setFocus] = useState<TraceFocus>(initialFocus);
   const [queryFocused, setQueryFocused] = useState(false);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [detailTab, setDetailTab] = useState<DetailTab>("rendered");
   const [copied, setCopied] = useState(false);
 
-  const groupedEntries = useMemo(() => groupTimeline(entries), [entries]);
+  const semanticOperations = useMemo(() => buildTraceOperations(entries), [entries]);
+  const densityOperations = useMemo(
+    () => density === "records" ? rawTraceOperations(entries) : operationsForDensity(semanticOperations, density),
+    [density, entries, semanticOperations],
+  );
+  const focusedOperations = useMemo(() => densityOperations.filter((operation) => operationMatchesFocus(operation, focus)), [densityOperations, focus]);
   const parsedQuery = useMemo(() => parseTimelineQuery(timelineQuery), [timelineQuery]);
   const queryActive = parsedQuery.clauses.length > 0;
-  const timelineStart = groupedEntries[0] ? new Date(groupedEntries[0].record.occurred_at).getTime() : 0;
-  const matchingIndexes = useMemo(() => new Set(groupedEntries
-    .map((entry, index) => timelineEntryMatches(entry, parsedQuery, timelineStart) ? index : -1)
-    .filter((index) => index >= 0)), [groupedEntries, parsedQuery, timelineStart]);
+  const timelineStart = entries[0] ? new Date(entries[0].record.occurred_at).getTime() : 0;
+  const matchingIndexes = useMemo(() => new Set(focusedOperations
+    .map((operation, index) => operation.entries.some((entry) => timelineEntryMatches(entry, parsedQuery, timelineStart)) ? index : -1)
+    .filter((index) => index >= 0)), [focusedOperations, parsedQuery, timelineStart]);
   const visibleIndexes = useMemo(
-    () => queryActive ? indexesForContext(groupedEntries.length, matchingIndexes, contextMode) : indexesForContext(groupedEntries.length, matchingIndexes, "full"),
-    [contextMode, groupedEntries.length, matchingIndexes, queryActive],
+    () => queryActive ? indexesForContext(focusedOperations.length, matchingIndexes, contextMode) : indexesForContext(focusedOperations.length, matchingIndexes, "full"),
+    [contextMode, focusedOperations.length, matchingIndexes, queryActive],
   );
-  const visibleEntries = useMemo(() => groupedEntries.filter((_, index) => visibleIndexes.has(index)), [groupedEntries, visibleIndexes]);
-  const matchedIDs = useMemo(() => new Set([...matchingIndexes].map((index) => groupedEntries[index]?.record.id).filter(Boolean)), [groupedEntries, matchingIndexes]);
+  const visibleOperations = useMemo(() => focusedOperations.filter((_, index) => visibleIndexes.has(index)), [focusedOperations, visibleIndexes]);
+  const matchedIDs = useMemo(() => new Set([...matchingIndexes].map((index) => focusedOperations[index]?.id).filter(Boolean)), [focusedOperations, matchingIndexes]);
   const analysis = useMemo(() => analyzeSession(entries), [entries]);
-  const selected = visibleEntries.find((entry) => entry.record.id === selectedID)
-    ?? visibleEntries.find((entry) => entry.record.kind === "message.user")
-    ?? visibleEntries[0]
+  const selected = visibleOperations.find((operation) => operation.id === selectedID)
+    ?? visibleOperations.find((operation) => operation.primary.record.kind === "message.user")
+    ?? visibleOperations[0]
     ?? null;
 
   useEffect(() => {
@@ -186,13 +169,17 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
     else url.searchParams.delete("timeline");
     if (contextMode !== "context") url.searchParams.set("timeline_context", contextMode);
     else url.searchParams.delete("timeline_context");
+    if (density !== "trace") url.searchParams.set("trace_density", density);
+    else url.searchParams.delete("trace_density");
+    if (focus !== "all") url.searchParams.set("trace_focus", focus);
+    else url.searchParams.delete("trace_focus");
     window.history.replaceState(null, "", url);
-  }, [contextMode, timelineQuery]);
+  }, [contextMode, density, focus, timelineQuery]);
 
   const observedFields = useMemo(() => {
-    const tagFields = new Set(groupedEntries.flatMap((entry) => Object.keys(entry.record.tags).map((key) => `tag.${key}`)));
+    const tagFields = new Set(entries.flatMap((entry) => Object.keys(entry.record.tags).map((key) => `tag.${key}`)));
     return [...filterFields, ...tagFields];
-  }, [groupedEntries]);
+  }, [entries]);
   const suggestions = useMemo(() => {
     const current = timelineQuery.match(/(?:^|\s)([^\s]*)$/)?.[1] ?? "";
     const normalized = current.startsWith("-") ? current.slice(1) : current;
@@ -207,17 +194,37 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
       : field === "offset" ? [">1s", ">5s", ">30s", ">1m"]
       : field === "size" ? [">1kb", ">10kb", ">1mb"]
       : field === "tokens" ? [">1k", ">10k", ">100k"]
-      : observedFilterValues(groupedEntries, field);
+      : observedFilterValues(entries, field);
     return fixed.filter((value) => value.toLowerCase().includes(partial)).slice(0, 7).map((value) => ({
       value: `${current.startsWith("-") ? "-" : ""}${field}:${quoteFilterValue(value)}`,
       label: value,
       hint: field,
     }));
-  }, [groupedEntries, observedFields, timelineQuery]);
-  const facetCounts = useMemo(() => facetDefinitions.map((facet) => {
-    const parsed = parseTimelineQuery(facet.query);
-    return groupedEntries.filter((entry) => timelineEntryMatches(entry, parsed, timelineStart)).length;
-  }), [groupedEntries, timelineStart]);
+  }, [entries, observedFields, timelineQuery]);
+  const focusCounts = useMemo<Record<TraceFocus, number>>(() => ({
+    all: densityOperations.length,
+    tools: densityOperations.filter((operation) => operationMatchesFocus(operation, "tools")).length,
+    slow: densityOperations.filter((operation) => operationMatchesFocus(operation, "slow")).length,
+    errors: densityOperations.filter((operation) => operationMatchesFocus(operation, "errors")).length,
+  }), [densityOperations]);
+  const maxOperationDuration = useMemo(() => Math.max(1, ...semanticOperations.map((operation) => operation.duration)), [semanticOperations]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "j" && event.key !== "k") return;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes((event.target as HTMLElement).tagName)) return;
+      if (visibleOperations.length === 0) return;
+      event.preventDefault();
+      const current = visibleOperations.findIndex((operation) => operation.id === selected?.id);
+      const next = event.key === "j"
+        ? Math.min(visibleOperations.length - 1, current + 1)
+        : Math.max(0, current <= 0 ? 0 : current - 1);
+      setSelectedID(visibleOperations[next].id);
+      document.querySelector<HTMLElement>(`[data-operation-id="${CSS.escape(visibleOperations[next].id)}"]`)?.scrollIntoView({ block: "nearest" });
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selected?.id, visibleOperations]);
 
   const applySuggestion = (value: string) => {
     setTimelineQuery((current) => `${current.replace(/(?:^|\s)[^\s]*$/, "").trim()}${current.replace(/(?:^|\s)[^\s]*$/, "").trim() ? " " : ""}${value}${value.endsWith(":") ? "" : " "}`);
@@ -276,7 +283,6 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button variant="ghost" size="sm" onClick={exportSession}><FileJson2 size={14} />Export</Button>
-            <Button variant="secondary" size="sm" onClick={onCompare}><Zap size={13} />Compare</Button>
           </div>
         </div>
 
@@ -299,26 +305,31 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
           <div className="shrink-0 border-b border-stroke px-2.5 pb-2 pt-2">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-[10px] font-semibold uppercase tracking-[.07em] text-ink-muted">Timeline</h2>
-                <p className="mt-0.5 font-mono text-[8px] tabular-nums text-ink-faint">{matchingIndexes.size} matched · {visibleEntries.length} shown · {entries.length} records</p>
+                <h2 className="text-[10px] font-semibold uppercase tracking-[.07em] text-ink-muted">Agent trace</h2>
+                <p className="mt-0.5 font-mono text-[8px] tabular-nums text-ink-faint">{queryActive ? `${matchingIndexes.size} matched · ${visibleOperations.length} shown` : `${visibleOperations.length} operations`} · {entries.length} records · J/K navigate</p>
               </div>
-              <div className="flex rounded-[4px] border border-stroke bg-canvas p-px">
-                {(["matches", "context", "full"] as const).map((mode) => (
+              <div className="flex rounded-[4px] border border-stroke bg-canvas p-px" role="group" aria-label="Trace density">
+                {(["overview", "trace", "records"] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => setContextMode(mode)}
+                    onClick={() => setDensity(mode)}
                     className={cn(
                       "rounded-[3px] px-1.5 py-0.5 text-[9px] capitalize transition-colors",
-                      contextMode === mode ? "bg-surface-hover text-ink-secondary" : "text-ink-faint hover:text-ink-muted",
+                      density === mode ? "bg-surface-hover text-ink-secondary" : "text-ink-faint hover:text-ink-muted",
                     )}
-                    title={mode === "matches" ? "Show matching records only" : mode === "context" ? "Include one surrounding record" : "Show the full trace and dim nonmatches"}
+                    title={mode === "overview" ? "Show decision-relevant operations" : mode === "trace" ? "Group records into semantic operations" : "Show every immutable record"}
                   >
-                    {contextLabels[mode]}
+                    {densityLabels[mode]}
                   </button>
                 ))}
               </div>
             </div>
+            <TraceMap
+              operations={semanticOperations}
+              selectedID={selected?.id ?? null}
+              onSelect={(operation) => { setDensity("trace"); setFocus("all"); setSelectedID(operation.id); }}
+            />
             <div className="relative mt-1.5">
               <label className={cn("flex h-7 items-center gap-1.5 rounded-[4px] border bg-canvas px-2", parsedQuery.errors.length > 0 ? "border-danger/50" : "border-stroke focus-within:border-accent/70")}>
                 <Search size={11} className="text-ink-faint" />
@@ -360,45 +371,53 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
                 </div>
               )}
             </div>
-            <div className="mt-1.5 flex min-w-0 items-center gap-1 overflow-x-auto no-scrollbar" aria-label="Timeline facets">
-              {facetDefinitions.map((facet, index) => {
-                const active = timelineQuery.split(/\s+/).includes(facet.token);
-                return (
+            <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1 overflow-x-auto no-scrollbar" role="group" aria-label="Trace focus">
+                {(["all", "tools", "slow", "errors"] as const).map((mode) => (
                   <button
-                    key={facet.label}
+                    key={mode}
                     type="button"
-                    onClick={() => setTimelineQuery((current) => active ? removeQueryToken(current, facet.token) : appendQueryToken(current, facet.token))}
-                    className={cn("flex h-5 shrink-0 items-center gap-1 rounded-[3px] border px-1.5 text-[8px] transition-colors", active ? "border-accent/30 bg-accent-soft/60 text-accent" : "border-stroke bg-canvas text-ink-faint hover:text-ink-muted")}
-                    aria-pressed={active}
+                    onClick={() => setFocus(mode)}
+                    className={cn("flex h-5 shrink-0 items-center gap-1 rounded-[3px] border px-1.5 text-[8px] transition-colors", focus === mode ? "border-accent/30 bg-accent-soft/60 text-accent" : "border-stroke bg-canvas text-ink-faint hover:text-ink-muted")}
+                    aria-pressed={focus === mode}
                   >
-                    {facet.label}<span className="font-mono opacity-70">{facetCounts[index]}</span>
+                    {focusLabels[mode]}<span className="font-mono opacity-70">{focusCounts[mode]}</span>
                   </button>
-                );
-              })}
-              {parsedQuery.errors[0] && <span className="ml-auto truncate text-[8px] text-danger" title={parsedQuery.errors.join(" ")}>{parsedQuery.errors[0]}</span>}
+                ))}
+              </div>
+              {queryActive && (
+                <div className="flex shrink-0 rounded-[4px] border border-stroke bg-canvas p-px" role="group" aria-label="Filter context">
+                  {(["matches", "context", "full"] as const).map((mode) => (
+                    <button key={mode} type="button" onClick={() => setContextMode(mode)} className={cn("rounded-[3px] px-1.5 py-0.5 text-[8px] capitalize", contextMode === mode ? "bg-surface-hover text-ink-secondary" : "text-ink-faint hover:text-ink-muted")}>{contextLabels[mode]}</button>
+                  ))}
+                </div>
+              )}
+              {parsedQuery.errors[0] && <span className="truncate text-[8px] text-danger" title={parsedQuery.errors.join(" ")}>{parsedQuery.errors[0]}</span>}
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto py-1">
-            {visibleEntries.length === 0 && (
-              <div className="px-5 py-12 text-center"><Search size={16} className="mx-auto text-ink-faint" /><p className="mt-2 text-[11px] text-ink-muted">No events match “{timelineQuery}”</p></div>
+            {visibleOperations.length === 0 && (
+              <div className="px-5 py-12 text-center"><Search size={16} className="mx-auto text-ink-faint" /><p className="mt-2 text-[11px] text-ink-muted">No operations match this view.</p></div>
             )}
-            {visibleEntries.map((entry, index) => {
-              const category = eventCategory(entry.record.kind);
+            {visibleOperations.map((operation, index) => {
+              const category = operation.category;
               const Icon = categoryMeta[category].icon;
-              const isSelected = selected?.record.id === entry.record.id;
-              const isMatch = matchedIDs.has(entry.record.id);
-              const elapsed = new Date(entry.record.occurred_at).getTime() - new Date(entries[0].record.occurred_at).getTime();
+              const isSelected = selected?.id === operation.id;
+              const isMatch = matchedIDs.has(operation.id);
+              const elapsed = new Date(operation.startedAt).getTime() - new Date(entries[0].record.occurred_at).getTime();
               return (
                 <button
-                  key={`${entry.record.id}-${index}`}
+                  key={`${operation.id}-${index}`}
                   type="button"
                   data-testid="timeline-entry"
+                  data-operation-id={operation.id}
                   data-match={isMatch ? "true" : "false"}
-                  onClick={() => { setSelectedID(entry.record.id); setDetailTab("rendered"); }}
+                  onClick={() => { setSelectedID(operation.id); setDetailTab("rendered"); }}
                   className={cn(
                     "group relative flex w-full gap-2 border-y border-transparent px-2.5 py-1.5 text-left transition-colors",
                     isSelected ? "border-stroke bg-surface-hover" : "hover:bg-surface-raised",
                     queryActive && contextMode === "full" && !isMatch && "opacity-35",
+                    operation.status === "error" && "bg-danger/5",
                   )}
                 >
                   {isSelected && <span className="absolute inset-y-0 left-0 w-0.5 bg-accent" />}
@@ -407,11 +426,13 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[10px] font-medium text-ink-secondary group-hover:text-ink">{eventTitle(entry)}</span>
-                      <span className="shrink-0 font-mono text-[8px] tabular-nums text-ink-faint">+{formatDuration(elapsed)}</span>
+                      <span className="truncate text-[10px] font-medium text-ink-secondary group-hover:text-ink">{operation.title}</span>
+                      <span className="shrink-0 font-mono text-[8px] tabular-nums text-ink-faint">{operation.duration > 0 ? formatDuration(operation.duration) : `+${formatDuration(elapsed)}`}</span>
                     </span>
-                    <span className="mt-0.5 block truncate text-[9px] leading-4 text-ink-faint">{previewForEntry(entry)}</span>
-                    {entry.groupedCount && entry.groupedCount > 1 && <Badge size="sm" className="mt-1.5">{entry.groupedCount} chunks merged</Badge>}
+                    <span className="mt-0.5 block truncate text-[9px] leading-4 text-ink-faint">{operation.summary}</span>
+                    {operation.duration > 0 && <span className="mt-1 block h-px overflow-hidden bg-stroke"><span className="block h-full bg-accent/50" style={{ width: `${Math.max(4, operation.duration / maxOperationDuration * 100)}%` }} /></span>}
+                    {operation.groupedCount > operation.entries.length && <Badge size="sm" className="mt-1.5">{operation.groupedCount} chunks merged</Badge>}
+                    {operation.entries.length > 1 && <span className="mt-1 block font-mono text-[7px] text-ink-faint">{operation.entries.length} records paired</span>}
                   </span>
                 </button>
               );
@@ -419,20 +440,20 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
           </div>
         </section>
 
-        <section className="flex min-h-0 min-w-0 flex-col bg-canvas" aria-label="Event details">
+        <section className="flex min-h-0 min-w-0 flex-col bg-canvas" aria-label="Operation details">
           {selected ? (
             <>
               <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-stroke bg-surface px-2.5">
                 <div className="flex min-w-0 items-center gap-2.5">
-                  <span className="grid size-5 place-items-center text-ink-muted">{(() => { const Icon = categoryMeta[eventCategory(selected.record.kind)].icon; return <Icon size={12} />; })()}</span>
+                  <span className="grid size-5 place-items-center text-ink-muted">{(() => { const Icon = categoryMeta[selected.category].icon; return <Icon size={12} />; })()}</span>
                   <div className="min-w-0">
-                    <h2 className="truncate text-[10px] font-medium text-ink-secondary">{eventTitle(selected)}</h2>
-                    <p className="truncate font-mono text-[8px] text-ink-faint">{selected.record.id}</p>
+                    <h2 className="truncate text-[10px] font-medium text-ink-secondary">{selected.title}</h2>
+                    <p className="truncate font-mono text-[8px] text-ink-faint">{selected.entries.length} record{selected.entries.length === 1 ? "" : "s"} · {selected.primary.record.id}</p>
                   </div>
                   <div className="hidden min-w-0 items-center gap-1 min-[1120px]:flex">
-                    <FilterToken field="kind" value={selected.record.kind} onAdd={addFilter} />
-                    {selected.record.tool && <FilterToken field="tool" value={selected.record.tool} onAdd={addFilter} />}
-                    {selected.record.agent && <FilterToken field="agent" value={selected.record.agent} onAdd={addFilter} />}
+                    <FilterToken field="kind" value={selected.primary.record.kind} onAdd={addFilter} />
+                    {selected.primary.record.tool && <FilterToken field="tool" value={selected.primary.record.tool} onAdd={addFilter} />}
+                    {selected.primary.record.agent && <FilterToken field="agent" value={selected.primary.record.agent} onAdd={addFilter} />}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -451,9 +472,9 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Copy event"
+                    aria-label="Copy operation"
                     onClick={async () => {
-                      await navigator.clipboard.writeText(JSON.stringify({ record: selected.record, content: selected.content }, null, 2));
+                      await navigator.clipboard.writeText(JSON.stringify(selected.entries.map((entry) => ({ record: entry.record, content: entry.content })), null, 2));
                       setCopied(true);
                       window.setTimeout(() => setCopied(false), 1200);
                     }}
@@ -463,13 +484,42 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry,
                 </div>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <EventDetail entry={selected} tab={detailTab} />
+                <OperationDetail operation={selected} tab={detailTab} />
               </div>
             </>
-          ) : <div className="grid h-full place-items-center text-xs text-ink-faint">Select an event to inspect it.</div>}
+          ) : <div className="grid h-full place-items-center text-xs text-ink-faint">Select an operation to inspect it.</div>}
         </section>
       </div>
     </main>
+  );
+}
+
+function TraceMap({ operations, selectedID, onSelect }: { operations: TraceOperation[]; selectedID: string | null; onSelect: (operation: TraceOperation) => void }) {
+  if (operations.length === 0) return null;
+  const start = new Date(operations[0].startedAt).getTime();
+  const end = new Date(operations.at(-1)?.endedAt ?? operations[0].endedAt).getTime();
+  const duration = Math.max(1, end - start);
+  return (
+    <div className="mt-2" aria-label="Run map">
+      <div className="mb-1 flex items-center justify-between text-[8px] text-ink-faint"><span>Run map</span><span className="font-mono tabular-nums">{formatDuration(duration)}</span></div>
+      <div className="relative h-4 overflow-hidden rounded-[3px] border border-stroke bg-canvas">
+        {operations.map((operation) => {
+          const left = (new Date(operation.startedAt).getTime() - start) / duration * 100;
+          const width = Math.max(0.65, operation.duration / duration * 100);
+          return (
+            <button
+              key={operation.id}
+              type="button"
+              onClick={() => onSelect(operation)}
+              className={cn("absolute inset-y-[3px] min-w-px rounded-[1px] opacity-70 transition-opacity hover:opacity-100", traceMapClasses[operation.category], selectedID === operation.id && "opacity-100 ring-1 ring-ink-muted", operation.status === "error" && "bg-danger")}
+              style={{ left: `${Math.min(99.2, left)}%`, width: `${Math.min(100 - left, width)}%` }}
+              aria-label={`${operation.title} at ${formatDuration(new Date(operation.startedAt).getTime() - start)}`}
+              title={`${operation.title} · ${operation.duration ? formatDuration(operation.duration) : "instant"}`}
+            />
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -501,22 +551,33 @@ function FilterToken({ field, value, onAdd }: { field: FilterField; value: strin
   );
 }
 
-function EventDetail({ entry, tab }: { entry: TimelineEntry; tab: DetailTab }) {
-  const category = eventCategory(entry.record.kind);
+function OperationDetail({ operation, tab }: { operation: TraceOperation; tab: DetailTab }) {
+  const entry = operation.primary;
   if (tab === "json") {
-    return <pre className="m-3 overflow-x-auto whitespace-pre-wrap break-words rounded-[4px] border border-stroke bg-[#0b0c0e] p-3 font-mono text-[10px] leading-5 text-ink-secondary">{JSON.stringify({ record: entry.record, content: entry.content }, null, 2)}</pre>;
+    return <pre className="m-3 overflow-x-auto whitespace-pre-wrap break-words rounded-[4px] border border-stroke bg-[#0b0c0e] p-3 font-mono text-[10px] leading-5 text-ink-secondary">{JSON.stringify({ operation: { id: operation.id, title: operation.title, duration_ms: operation.duration }, records: operation.entries.map((value) => ({ record: value.record, content: value.content })) }, null, 2)}</pre>;
   }
+
+  const toolResult = operation.entries.find((value) => value.record.kind === "tool.result");
+  const totalBytes = operation.entries.reduce((sum, value) => sum + value.record.content.size, 0);
 
   return (
     <div className="p-3">
-      <PrettyContent entry={entry} />
+      {operation.category === "tool" && toolResult ? (
+        <div className="space-y-2.5">
+          <PrettyContent entry={entry} />
+          <div className="flex items-center gap-2 px-1 font-mono text-[8px] text-ink-faint"><span className="h-px flex-1 bg-stroke" /><span>completed in {formatDuration(operation.duration)}</span><span className="h-px flex-1 bg-stroke" /></div>
+          <PrettyContent entry={toolResult} />
+        </div>
+      ) : <PrettyContent entry={entry} />}
       <div className="mt-4 border-t border-stroke pt-3">
-        <h3 className="mb-2 text-[9px] font-semibold uppercase tracking-[.08em] text-ink-faint">Evidence metadata</h3>
+        <h3 className="mb-2 text-[9px] font-semibold uppercase tracking-[.08em] text-ink-faint">Operation evidence</h3>
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[4px] border border-stroke bg-stroke max-[1080px]:grid-cols-1">
-          <MetaItem icon={<Clock3 size={13} />} label="Occurred" value={formatTimestamp(entry.record.occurred_at)} />
+          <MetaItem icon={<Clock3 size={13} />} label="Started" value={formatTimestamp(operation.startedAt)} />
+          <MetaItem icon={<Gauge size={13} />} label="Duration" value={operation.duration ? formatDuration(operation.duration) : "Instant"} mono />
           <MetaItem icon={<Fingerprint size={13} />} label="Trace" value={entry.record.trace_id ? shortID(entry.record.trace_id, 18) : "Not linked"} mono />
-          <MetaItem icon={<Database size={13} />} label="Storage" value={`${entry.record.content.storage ?? "blob"} · ${formatNumber(entry.record.content.size)} bytes`} />
-          <MetaItem icon={<CheckCircle2 size={13} />} label="Integrity" value={entry.record.record_sha256 ? "SHA-256 sealed" : "Content addressed"} success />
+          <MetaItem icon={<Database size={13} />} label="Evidence" value={`${operation.entries.length} record${operation.entries.length === 1 ? "" : "s"} · ${formatNumber(totalBytes)} bytes`} />
+          <MetaItem icon={<CheckCircle2 size={13} />} label="Integrity" value={operation.entries.every((value) => value.record.record_sha256) ? "All records SHA-256 sealed" : "Content addressed"} success />
+          <MetaItem icon={<Bot size={13} />} label="Agent" value={entry.record.agent ?? "Not attributed"} mono />
         </div>
         {Object.keys(entry.record.tags).length > 0 && (
           <div className="mt-3">
@@ -590,6 +651,18 @@ function PrettyContent({ entry }: { entry: TimelineEntry }) {
     );
   }
 
+  if (entry.record.kind === "tool.result") {
+    return (
+      <Panel className="overflow-hidden" elevation="raised">
+        <div className="flex h-8 items-center justify-between border-b border-stroke bg-surface px-3">
+          <div className="flex items-center gap-2 text-ink-muted"><CheckCircle2 size={12} /><span className="text-[9px] font-semibold uppercase tracking-[.08em]">Tool output</span></div>
+          <Badge tone={entry.record.status === "error" || entry.record.status === "failed" ? "danger" : "success"}>{entry.record.status ?? "returned"}</Badge>
+        </div>
+        <CodeBlock value={entry.content} inset />
+      </Panel>
+    );
+  }
+
   if (entry.record.kind === "model.request") {
     return (
       <Panel className="overflow-hidden" elevation="raised">
@@ -602,6 +675,20 @@ function PrettyContent({ entry }: { entry: TimelineEntry }) {
           <ValueCell label="Max output" value={typeof content.max_tokens === "number" ? `${formatNumber(content.max_tokens)} tokens` : undefined} />
           <ValueCell label="Messages" value={content.message_count} />
           <ValueCell label="Tools available" value={Array.isArray(content.tools) ? content.tools.length : 0} />
+        </div>
+      </Panel>
+    );
+  }
+
+  if (entry.record.kind === "model.response") {
+    return (
+      <Panel className="overflow-hidden" elevation="raised">
+        <div className="flex h-8 items-center gap-2 border-b border-stroke bg-surface px-3 text-ink-muted"><Sparkles size={12} /><span className="text-[9px] font-semibold uppercase tracking-[.08em]">Generation response</span></div>
+        <div className="grid grid-cols-2 gap-px bg-stroke">
+          <ValueCell label="Model" value={content.model} />
+          <ValueCell label="Stop reason" value={content.stop_reason} />
+          <ValueCell label="Provider" value={content.provider} />
+          <ValueCell label="Status" value={entry.record.status ?? "returned"} />
         </div>
       </Panel>
     );

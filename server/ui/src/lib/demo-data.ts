@@ -94,9 +94,16 @@ function buildTimeline(scenario: Scenario): TimelineEntry[] {
   while (kinds.length < scenario.records - 2) kinds.push(middleKinds[(kinds.length - 3) % middleKinds.length]);
   kinds.push("message.assistant", "agent.turn.completed");
 
+  let activeTool = scenario.tools[0];
+  let toolCallCount = 0;
+
   return kinds.map((kind, index) => {
     const occurred = new Date(first + (duration * index) / Math.max(1, kinds.length - 1)).toISOString();
-    const tool = scenario.tools[Math.floor(Math.max(0, index - 3) / 2) % scenario.tools.length];
+    if (kind === "tool.call") {
+      activeTool = scenario.tools[toolCallCount % scenario.tools.length];
+      toolCallCount += 1;
+    }
+    const tool = activeTool;
     const content = index === kinds.length - 2
       ? { text: `## Recommendation\n\nThe **${scenario.slug.replaceAll("-", " ")}** run completed with ${scenario.tools.length} evidence sources reconciled.\n\n- Primary checks passed\n- Remaining risk is bounded and documented\n- All supporting records are sealed in immutable history` }
       : contentForKind(kind, scenario, index, tool);

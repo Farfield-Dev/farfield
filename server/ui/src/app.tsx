@@ -6,7 +6,6 @@ import { AppRail } from "./components/app-rail";
 import { ActivityOverview } from "./components/activity-overview";
 import { FarfieldMark } from "./components/logo";
 import { SessionList } from "./components/session-list";
-import { SessionComparison } from "./components/session-comparison";
 import { TraceInspector } from "./components/trace-inspector";
 import { isDemoMode } from "./lib/demo-data";
 import { fetchConversations, fetchTimeline, type ConversationSummary, type TimelineEntry } from "./lib/history";
@@ -22,7 +21,6 @@ export default function App() {
   const [listError, setListError] = useState<string | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [comparisonOpen, setComparisonOpen] = useState(false);
 
   const selected = conversations.find((conversation) => conversation.id === selectedID) ?? null;
   const totalRecords = useMemo(() => conversations.reduce((sum, conversation) => sum + conversation.record_count, 0), [conversations]);
@@ -151,19 +149,10 @@ export default function App() {
               loading={timelineLoading}
               error={timelineError}
               onRetry={() => setRefreshKey((value) => value + 1)}
-              onCompare={() => setComparisonOpen(true)}
             />
           </div>
         )}
       </div>
-      {comparisonOpen && selected && entries.length > 0 && (
-        <SessionComparison
-          base={selected}
-          baseEntries={entries}
-          conversations={conversations}
-          onClose={() => setComparisonOpen(false)}
-        />
-      )}
     </div>
   );
 }
