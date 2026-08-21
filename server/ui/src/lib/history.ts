@@ -50,6 +50,9 @@ export type SessionAnalysis = {
   modelCalls: number;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
+  cacheReadTokens: number;
+  reasoningEvents: number;
   prompt: string | null;
   models: string[];
   traces: string[];
@@ -83,17 +86,43 @@ function asNumber(value: JSONValue | undefined) {
   return typeof value === "number" ? value : 0;
 }
 
+function firstNumber(...values: (JSONValue | undefined)[]) {
+  return values.find((value): value is number => typeof value === "number") ?? 0;
+}
+
+export function isReasoningEntry(entry: TimelineEntry) {
+  const kind = entry.record.kind.toLowerCase();
+  if (kind.includes("reasoning") || kind.includes("thinking")) return true;
+  const content = asObject(entry.content);
+  const type = typeof content?.type === "string" ? content.type.toLowerCase() : "";
+  return type === "reasoning" || type === "thinking";
+}
+
+export function reasoningTextForEntry(entry: TimelineEntry) {
+  const content = asObject(entry.content);
+  for (const key of ["text", "reasoning", "thinking", "summary"]) {
+    if (typeof content?.[key] === "string") return content[key] as string;
+  }
+  return null;
+}
+
 export function analyzeSession(entries: TimelineEntry[]): SessionAnalysis {
   const first = entries[0]?.record.occurred_at;
   const last = entries.at(-1)?.record.occurred_at;
-  const statuses = new Set(entries.map((entry) => entry.record.status?.toLowerCase()).filter(Boolean));
-  const failed = [...statuses].some((status) => status === "failed" || status === "error" || status === "cancelled");
-  const running = statuses.has("running") && !entries.some((entry) => entry.record.kind === "agent.turn.completed");
-  const complete = entries.some((entry) => entry.record.kind === "agent.turn.completed");
+  const statuses = new Set(entries.map((entry) => entry.record.status?.toLowerCase()).filter((status): status is string => Boolean(status)));
+  const terminal = [...entries].reverse().find((entry) => entry.record.kind === "agent.turn.completed");
+  const failureStatuses = new Set(["failed", "error", "cancelled"]);
+  const failed = terminal
+    ? failureStatuses.has(terminal.record.status?.toLowerCase() ?? "")
+    : [...statuses].some((status) => failureStatuses.has(status));
+  const running = statuses.has("running") && !terminal;
+  const complete = Boolean(terminal) && !failed;
   const models = new Set<string>();
   const traces = new Set<string>();
   let inputTokens = 0;
   let outputTokens = 0;
+  let reasoningTokens = 0;
+  let cacheReadTokens = 0;
   let prompt: string | null = null;
 
   for (const entry of entries) {
@@ -106,6 +135,11 @@ export function analyzeSession(entries: TimelineEntry[]): SessionAnalysis {
       const usage = asObject(content.usage);
       inputTokens += asNumber(usage?.input_tokens);
       outputTokens += asNumber(usage?.output_tokens);
+      const outputDetails = asObject(usage?.output_tokens_details ?? null);
+      const completionDetails = asObject(usage?.completion_tokens_details ?? null);
+      const inputDetails = asObject(usage?.input_tokens_details ?? null);
+      reasoningTokens += firstNumber(usage?.reasoning_tokens, outputDetails?.reasoning_tokens, completionDetails?.reasoning_tokens);
+      cacheReadTokens += firstNumber(usage?.cache_read_input_tokens, usage?.cached_input_tokens, inputDetails?.cached_tokens);
     }
   }
 
@@ -117,6 +151,9 @@ export function analyzeSession(entries: TimelineEntry[]): SessionAnalysis {
     modelCalls: entries.filter((entry) => entry.record.kind === "model.request").length,
     inputTokens,
     outputTokens,
+    reasoningTokens,
+    cacheReadTokens,
+    reasoningEvents: entries.filter(isReasoningEntry).length,
     prompt,
     models: [...models],
     traces: [...traces],
@@ -134,6 +171,10 @@ export function previewForEntry(entry: TimelineEntry) {
   }
   if (entry.record.kind === "tool.result" && Array.isArray(content.content)) {
     return `${content.content.length} result${content.content.length === 1 ? "" : "s"} returned`;
+  }
+  if (entry.record.kind === "tool.result") {
+    const error = asObject(content.error);
+    if (typeof error?.message === "string") return error.message;
   }
   if (entry.record.kind === "model.request") {
     return [content.model, content.provider].filter((value) => typeof value === "string").join(" · ") || "Model request";

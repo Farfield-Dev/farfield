@@ -1,6 +1,7 @@
 import {
   Bot,
   Box,
+  BrainCircuit,
   Check,
   CheckCircle2,
   CircleDot,
@@ -24,8 +25,12 @@ import ReactMarkdown from "react-markdown";
 import { Badge } from "../design-system/badge";
 import { Button } from "../design-system/button";
 import { Panel } from "../design-system/panel";
+import { SegmentedControl, SegmentedControlItem } from "../design-system/segmented-control";
+import { ConversationReview } from "./conversation-review";
 import {
   analyzeSession,
+  isReasoningEntry,
+  reasoningTextForEntry,
   type ConversationSummary,
   type JSONValue,
   type TimelineEntry,
@@ -60,10 +65,11 @@ type InspectorProps = {
 };
 
 type DetailTab = "rendered" | "json";
+type SessionView = "review" | "trace";
 
 const contextLabels: Record<ContextMode, string> = { matches: "Matches", context: "Context", full: "Full" };
 const densityLabels: Record<TraceDensity, string> = { overview: "Overview", trace: "Trace", records: "Records" };
-const focusLabels: Record<TraceFocus, string> = { all: "All", tools: "Tools", slow: "Slow", errors: "Errors" };
+const focusLabels: Record<TraceFocus, string> = { all: "All", tools: "Tools", reasoning: "Reasoning", slow: "Slow", errors: "Errors" };
 
 function initialContextMode(): ContextMode {
   const value = new URLSearchParams(window.location.search).get("timeline_context");
@@ -72,12 +78,16 @@ function initialContextMode(): ContextMode {
 
 function initialDensity(): TraceDensity {
   const value = new URLSearchParams(window.location.search).get("trace_density");
-  return value === "overview" || value === "records" ? value : "trace";
+  return value === "records" ? value : "trace";
 }
 
 function initialFocus(): TraceFocus {
   const value = new URLSearchParams(window.location.search).get("trace_focus");
-  return value === "tools" || value === "slow" || value === "errors" ? value : "all";
+  return value === "tools" || value === "reasoning" || value === "slow" || value === "errors" ? value : "all";
+}
+
+function initialSessionView(): SessionView {
+  return new URLSearchParams(window.location.search).get("session_view") === "trace" ? "trace" : "review";
 }
 
 function appendQueryToken(query: string, token: string) {
@@ -124,6 +134,7 @@ function promptTitle(prompt: string | null, conversation: ConversationSummary) {
 }
 
 export function TraceInspector({ conversation, entries, loading, error, onRetry }: InspectorProps) {
+  const [sessionView, setSessionView] = useState<SessionView>(initialSessionView);
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [timelineQuery, setTimelineQuery] = useState(() => new URLSearchParams(window.location.search).get("timeline") ?? "");
   const [contextMode, setContextMode] = useState<ContextMode>(initialContextMode);
@@ -173,8 +184,11 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
     else url.searchParams.delete("trace_density");
     if (focus !== "all") url.searchParams.set("trace_focus", focus);
     else url.searchParams.delete("trace_focus");
+    if (sessionView === "trace") url.searchParams.set("session_view", "trace");
+    else url.searchParams.delete("session_view");
+    url.searchParams.delete("review_density");
     window.history.replaceState(null, "", url);
-  }, [contextMode, density, focus, timelineQuery]);
+  }, [contextMode, density, focus, sessionView, timelineQuery]);
 
   const observedFields = useMemo(() => {
     const tagFields = new Set(entries.flatMap((entry) => Object.keys(entry.record.tags).map((key) => `tag.${key}`)));
@@ -204,6 +218,7 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
   const focusCounts = useMemo<Record<TraceFocus, number>>(() => ({
     all: densityOperations.length,
     tools: densityOperations.filter((operation) => operationMatchesFocus(operation, "tools")).length,
+    reasoning: densityOperations.filter((operation) => operationMatchesFocus(operation, "reasoning")).length,
     slow: densityOperations.filter((operation) => operationMatchesFocus(operation, "slow")).length,
     errors: densityOperations.filter((operation) => operationMatchesFocus(operation, "errors")).length,
   }), [densityOperations]);
@@ -211,6 +226,7 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (sessionView !== "trace") return;
       if (event.key !== "j" && event.key !== "k") return;
       if (["INPUT", "TEXTAREA", "SELECT"].includes((event.target as HTMLElement).tagName)) return;
       if (visibleOperations.length === 0) return;
@@ -224,7 +240,7 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selected?.id, visibleOperations]);
+  }, [selected?.id, sessionView, visibleOperations]);
 
   const applySuggestion = (value: string) => {
     setTimelineQuery((current) => `${current.replace(/(?:^|\s)[^\s]*$/, "").trim()}${current.replace(/(?:^|\s)[^\s]*$/, "").trim() ? " " : ""}${value}${value.endsWith(":") ? "" : " "}`);
@@ -234,6 +250,16 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
   const addFilter = (field: FilterField, value: string) => {
     const token = `${field}:${quoteFilterValue(value)}`;
     setTimelineQuery((current) => current.split(/\s+/).includes(token) ? current : appendQueryToken(current, token));
+  };
+
+  const openEntryInTrace = (entry: TimelineEntry) => {
+    setSessionView("trace");
+    setDensity("records");
+    setFocus("all");
+    setContextMode("full");
+    setTimelineQuery("");
+    setDetailTab("rendered");
+    setSelectedID(entry.record.id);
   };
 
   if (!conversation) return <InspectorEmpty />;
@@ -281,7 +307,15 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
               {analysis.models.map((model) => <Badge key={model} size="sm">{model}</Badge>)}
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <SegmentedControl aria-label="Session view">
+              <SegmentedControlItem active={sessionView === "review"} onClick={() => setSessionView("review")}>
+                Review
+              </SegmentedControlItem>
+              <SegmentedControlItem active={sessionView === "trace"} onClick={() => setSessionView("trace")}>
+                Trace
+              </SegmentedControlItem>
+            </SegmentedControl>
             <Button variant="ghost" size="sm" onClick={exportSession}><FileJson2 size={14} />Export</Button>
           </div>
         </div>
@@ -294,12 +328,22 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
           <Metric
             label="Tokens"
             value={analysis.inputTokens + analysis.outputTokens ? formatNumber(analysis.inputTokens + analysis.outputTokens) : "—"}
-            detail={analysis.inputTokens + analysis.outputTokens ? `${formatNumber(analysis.inputTokens)} in · ${formatNumber(analysis.outputTokens)} out` : "not reported"}
+            detail={analysis.inputTokens + analysis.outputTokens
+              ? [
+                `${formatNumber(analysis.inputTokens)} in`,
+                `${formatNumber(analysis.outputTokens)} out`,
+                analysis.reasoningTokens ? `${formatNumber(analysis.reasoningTokens)} reasoning` : null,
+                analysis.cacheReadTokens ? `${formatNumber(analysis.cacheReadTokens)} cached` : null,
+              ].filter(Boolean).join(" · ")
+              : "not reported"}
             icon={<CircleDot size={13} />}
           />
         </div>
       </header>
 
+      {sessionView === "review" ? (
+        <ConversationReview entries={entries} complete={analysis.status === "complete"} onOpenEntry={openEntryInTrace} />
+      ) : (
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(270px,34%)_1fr] max-[1040px]:grid-cols-[minmax(250px,40%)_1fr] max-[720px]:grid-cols-1 max-[720px]:grid-rows-[1fr_1fr]">
         <section className="flex min-h-0 flex-col border-r border-stroke bg-surface max-[720px]:border-b max-[720px]:border-r-0" aria-label="Session timeline">
           <div className="shrink-0 border-b border-stroke px-2.5 pb-2 pt-2">
@@ -308,22 +352,19 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
                 <h2 className="text-[10px] font-semibold uppercase tracking-[.07em] text-ink-muted">Agent trace</h2>
                 <p className="mt-0.5 font-mono text-[8px] tabular-nums text-ink-faint">{queryActive ? `${matchingIndexes.size} matched · ${visibleOperations.length} shown` : `${visibleOperations.length} operations`} · {entries.length} records · J/K navigate</p>
               </div>
-              <div className="flex rounded-[4px] border border-stroke bg-canvas p-px" role="group" aria-label="Trace density">
-                {(["overview", "trace", "records"] as const).map((mode) => (
-                  <button
+              <SegmentedControl aria-label="Trace density">
+                {(["trace", "records"] as const).map((mode) => (
+                  <SegmentedControlItem
                     key={mode}
-                    type="button"
+                    size="xs"
+                    active={density === mode}
                     onClick={() => setDensity(mode)}
-                    className={cn(
-                      "rounded-[3px] px-1.5 py-0.5 text-[9px] capitalize transition-colors",
-                      density === mode ? "bg-surface-hover text-ink-secondary" : "text-ink-faint hover:text-ink-muted",
-                    )}
-                    title={mode === "overview" ? "Show decision-relevant operations" : mode === "trace" ? "Group records into semantic operations" : "Show every immutable record"}
+                    title={mode === "trace" ? "Pair related captured records into operations" : "Show every immutable record separately"}
                   >
-                    {densityLabels[mode]}
-                  </button>
+                    {mode === "trace" ? "Operations" : densityLabels[mode]}
+                  </SegmentedControlItem>
                 ))}
-              </div>
+              </SegmentedControl>
             </div>
             <TraceMap
               operations={semanticOperations}
@@ -373,7 +414,7 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
             </div>
             <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-1 overflow-x-auto no-scrollbar" role="group" aria-label="Trace focus">
-                {(["all", "tools", "slow", "errors"] as const).map((mode) => (
+                {(["all", "tools", "reasoning", "slow", "errors"] as const).map((mode) => (
                   <button
                     key={mode}
                     type="button"
@@ -386,11 +427,11 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
                 ))}
               </div>
               {queryActive && (
-                <div className="flex shrink-0 rounded-[4px] border border-stroke bg-canvas p-px" role="group" aria-label="Filter context">
+                <SegmentedControl aria-label="Filter context">
                   {(["matches", "context", "full"] as const).map((mode) => (
-                    <button key={mode} type="button" onClick={() => setContextMode(mode)} className={cn("rounded-[3px] px-1.5 py-0.5 text-[8px] capitalize", contextMode === mode ? "bg-surface-hover text-ink-secondary" : "text-ink-faint hover:text-ink-muted")}>{contextLabels[mode]}</button>
+                    <SegmentedControlItem key={mode} size="xs" active={contextMode === mode} onClick={() => setContextMode(mode)}>{contextLabels[mode]}</SegmentedControlItem>
                   ))}
-                </div>
+                </SegmentedControl>
               )}
               {parsedQuery.errors[0] && <span className="truncate text-[8px] text-danger" title={parsedQuery.errors.join(" ")}>{parsedQuery.errors[0]}</span>}
             </div>
@@ -457,18 +498,18 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <div className="mr-1 flex rounded-[4px] border border-stroke bg-canvas p-px">
+                  <SegmentedControl className="mr-1" aria-label="Detail format">
                     {(["rendered", "json"] as const).map((tab) => (
-                      <button
+                      <SegmentedControlItem
                         key={tab}
-                        type="button"
+                        size="xs"
+                        active={detailTab === tab}
                         onClick={() => setDetailTab(tab)}
-                        className={cn("rounded-[3px] px-1.5 py-0.5 text-[9px] capitalize", detailTab === tab ? "bg-surface-hover text-ink-secondary" : "text-ink-faint hover:text-ink-muted")}
                       >
                         {tab === "rendered" ? "Pretty" : "JSON"}
-                      </button>
+                      </SegmentedControlItem>
                     ))}
-                  </div>
+                  </SegmentedControl>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -490,6 +531,7 @@ export function TraceInspector({ conversation, entries, loading, error, onRetry 
           ) : <div className="grid h-full place-items-center text-xs text-ink-faint">Select an operation to inspect it.</div>}
         </section>
       </div>
+      )}
     </main>
   );
 }
@@ -562,7 +604,7 @@ function OperationDetail({ operation, tab }: { operation: TraceOperation; tab: D
 
   return (
     <div className="p-3">
-      {operation.category === "tool" && toolResult ? (
+      {operation.category === "tool" && toolResult && toolResult.record.id !== entry.record.id ? (
         <div className="space-y-2.5">
           <PrettyContent entry={entry} />
           <div className="flex items-center gap-2 px-1 font-mono text-[8px] text-ink-faint"><span className="h-px flex-1 bg-stroke" /><span>completed in {formatDuration(operation.duration)}</span><span className="h-px flex-1 bg-stroke" /></div>
@@ -595,6 +637,19 @@ function OperationDetail({ operation, tab }: { operation: TraceOperation; tab: D
 function PrettyContent({ entry }: { entry: TimelineEntry }) {
   const content = asObject(entry.content);
   if (!content) return <CodeBlock value={entry.content} />;
+
+  if (isReasoningEntry(entry)) {
+    const text = reasoningTextForEntry(entry);
+    return (
+      <Panel className="overflow-hidden" elevation="raised">
+        <div className="flex h-8 items-center justify-between border-b border-stroke bg-surface px-3">
+          <div className="flex items-center gap-2 text-ink-muted"><BrainCircuit size={12} /><span className="text-[9px] font-semibold uppercase tracking-[.08em]">Captured reasoning</span></div>
+          {typeof content.token_count === "number" && <Badge>{formatNumber(content.token_count)} tokens</Badge>}
+        </div>
+        {text ? <div className="markdown-body p-3.5"><ReactMarkdown>{text}</ReactMarkdown></div> : <CodeBlock value={entry.content} inset />}
+      </Panel>
+    );
+  }
 
   if ((entry.record.kind === "message.user" || entry.record.kind === "message.assistant") && typeof content.text === "string") {
     return (
@@ -652,11 +707,12 @@ function PrettyContent({ entry }: { entry: TimelineEntry }) {
   }
 
   if (entry.record.kind === "tool.result") {
+    const failed = entry.record.status === "error" || entry.record.status === "failed" || entry.record.status === "cancelled";
     return (
       <Panel className="overflow-hidden" elevation="raised">
         <div className="flex h-8 items-center justify-between border-b border-stroke bg-surface px-3">
-          <div className="flex items-center gap-2 text-ink-muted"><CheckCircle2 size={12} /><span className="text-[9px] font-semibold uppercase tracking-[.08em]">Tool output</span></div>
-          <Badge tone={entry.record.status === "error" || entry.record.status === "failed" ? "danger" : "success"}>{entry.record.status ?? "returned"}</Badge>
+          <div className={cn("flex items-center gap-2", failed ? "text-danger" : "text-ink-muted")}>{failed ? <XCircle size={12} /> : <CheckCircle2 size={12} />}<span className="text-[9px] font-semibold uppercase tracking-[.08em]">Tool output</span></div>
+          <Badge tone={failed ? "danger" : "success"}>{entry.record.status ?? "returned"}</Badge>
         </div>
         <CodeBlock value={entry.content} inset />
       </Panel>
@@ -705,6 +761,7 @@ function PrettyContent({ entry }: { entry: TimelineEntry }) {
         <div className="grid grid-cols-2 gap-px bg-stroke">
           <ValueCell label="Input tokens" value={usage?.input_tokens} />
           <ValueCell label="Output tokens" value={usage?.output_tokens} />
+          <ValueCell label="Reasoning tokens" value={asObject(usage?.output_tokens_details ?? null)?.reasoning_tokens ?? asObject(usage?.completion_tokens_details ?? null)?.reasoning_tokens ?? usage?.reasoning_tokens} />
           <ValueCell label="Cache read" value={usage?.cache_read_input_tokens} />
           <ValueCell label="Service tier" value={usage?.service_tier} />
         </div>

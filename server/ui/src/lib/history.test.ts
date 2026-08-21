@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeSession, previewForEntry, type TimelineEntry } from "./history";
+import { analyzeSession, isReasoningEntry, previewForEntry, type TimelineEntry } from "./history";
 
 function entry(kind: string, content: TimelineEntry["content"], overrides: Partial<TimelineEntry["record"]> = {}): TimelineEntry {
   return {
@@ -49,12 +49,39 @@ describe("analyzeSession", () => {
     });
   });
 
-  it("gives failure status precedence over completion", () => {
+  it("keeps recovered tool failures distinct from terminal session failures", () => {
     const values = [
-      entry("agent.turn.completed", {}, { status: "completed" }),
       entry("tool.result", {}, { status: "failed" }),
+      entry("agent.turn.completed", {}, { status: "completed" }),
     ];
-    expect(analyzeSession(values).status).toBe("failed");
+    expect(analyzeSession(values).status).toBe("complete");
+
+    const terminal = [
+      entry("tool.result", {}, { status: "failed" }),
+      entry("agent.turn.completed", {}, { status: "failed" }),
+    ];
+    expect(analyzeSession(terminal).status).toBe("failed");
+  });
+
+  it("reads explicit reasoning and cache usage without adding reasoning twice", () => {
+    const reasoning = entry("model.reasoning", { type: "reasoning", text: "Captured provider reasoning", token_count: 240 });
+    const completed = entry("agent.turn.completed", {
+      usage: {
+        input_tokens: 2_000,
+        output_tokens: 600,
+        output_tokens_details: { reasoning_tokens: 240 },
+        cache_read_input_tokens: 800,
+      },
+    });
+
+    expect(isReasoningEntry(reasoning)).toBe(true);
+    expect(analyzeSession([reasoning, completed])).toMatchObject({
+      inputTokens: 2_000,
+      outputTokens: 600,
+      reasoningTokens: 240,
+      cacheReadTokens: 800,
+      reasoningEvents: 1,
+    });
   });
 });
 

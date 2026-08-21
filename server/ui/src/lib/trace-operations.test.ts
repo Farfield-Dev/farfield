@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HistoryRecord, TimelineEntry } from "./history";
-import { buildTraceOperations, operationsForDensity, rawTraceOperations } from "./trace-operations";
+import { buildTraceOperations, operationMatchesFocus, operationsForDensity, rawTraceOperations } from "./trace-operations";
 
 function entry(id: string, kind: string, seconds: number, tool: string | null = null, content: TimelineEntry["content"] = {}): TimelineEntry {
   const record: HistoryRecord = {
@@ -63,5 +63,10 @@ describe("trace operations", () => {
       "message.assistant",
       "agent.turn.completed",
     ]);
+  });
+
+  it("supports a literal reasoning focus", () => {
+    const [operation] = buildTraceOperations([entry("thinking", "model.reasoning", 1, null, { type: "reasoning", text: "captured" })]);
+    expect(operationMatchesFocus(operation, "reasoning")).toBe(true);
   });
 });

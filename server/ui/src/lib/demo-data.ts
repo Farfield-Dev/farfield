@@ -12,11 +12,17 @@ type Scenario = {
   tools: string[];
   environment: "production" | "staging" | "development";
   team: string;
+  failure?: {
+    toolCall: number | "last";
+    terminal: boolean;
+    code: string;
+    message: string;
+  };
 };
 
 const scenarios: Scenario[] = [
-  { slug: "release-readiness-audit", agents: ["release-engineer", "code-reviewer"], prompt: "Audit the release candidate, verify migrations and rollback safety, then produce a launch recommendation with blocking issues separated from follow-ups.", daysAgo: 0, hour: 16, records: 58, durationMinutes: 7.8, model: "claude-sonnet-4-6", tools: ["read_file", "exec", "github_search"], environment: "production", team: "platform" },
-  { slug: "checkout-incident-triage", agents: ["incident-commander", "log-analyst"], prompt: "Investigate the checkout latency regression, correlate deployment and trace evidence, and propose the safest mitigation with explicit confidence levels.", daysAgo: 0, hour: 13, records: 46, durationMinutes: 5.2, model: "gpt-5.4", tools: ["query_logs", "fetch_metrics", "deployment_diff"], environment: "production", team: "reliability" },
+  { slug: "release-readiness-audit", agents: ["release-engineer", "code-reviewer"], prompt: "Audit the release candidate, verify migrations and rollback safety, then produce a launch recommendation with blocking issues separated from follow-ups.", daysAgo: 0, hour: 16, records: 58, durationMinutes: 7.8, model: "claude-sonnet-4-6", tools: ["read_file", "exec", "github_search"], environment: "production", team: "platform", failure: { toolCall: 2, terminal: false, code: "COMMAND_EXIT_1", message: "Migration dry-run detected a checksum mismatch in 20260818_add_run_index.sql" } },
+  { slug: "checkout-incident-triage", agents: ["incident-commander", "log-analyst"], prompt: "Investigate the checkout latency regression, correlate deployment and trace evidence, and propose the safest mitigation with explicit confidence levels.", daysAgo: 0, hour: 13, records: 46, durationMinutes: 5.2, model: "gpt-5.4", tools: ["query_logs", "fetch_metrics", "deployment_diff"], environment: "production", team: "reliability", failure: { toolCall: "last", terminal: true, code: "UPSTREAM_TIMEOUT", message: "Log search backend did not respond within 30 seconds after three attempts" } },
   { slug: "enterprise-renewal-brief", agents: ["account-researcher"], prompt: "Prepare a concise renewal brief using recent product usage, support themes, and open commitments. Flag every inference that needs account-team confirmation.", daysAgo: 0, hour: 9, records: 31, durationMinutes: 3.4, model: "gemini-2.5-pro", tools: ["warehouse_query", "search_tickets", "read_crm"], environment: "production", team: "growth" },
   { slug: "sdk-breaking-change-review", agents: ["code-reviewer"], prompt: "Review the TypeScript SDK diff for accidental breaking changes, unsafe retries, and protocol incompatibilities before merge.", daysAgo: 1, hour: 15, records: 42, durationMinutes: 4.6, model: "claude-sonnet-4-6", tools: ["read_file", "exec", "github_search"], environment: "staging", team: "developer-experience" },
   { slug: "support-escalation-4821", agents: ["support-agent", "incident-commander"], prompt: "Resolve escalation 4821 by reconstructing the failed workflow, identifying the customer-visible impact, and drafting a technically precise response.", daysAgo: 1, hour: 10, records: 37, durationMinutes: 3.9, model: "gpt-5.4", tools: ["search_tickets", "query_logs", "read_crm"], environment: "production", team: "support" },
@@ -60,7 +66,19 @@ function toolInput(tool: string, scenario: Scenario, index: number): JSONValue {
   return { scope: scenario.team, window: "24h", operation: tool.replaceAll("_", " ") };
 }
 
-function toolResult(tool: string, scenario: Scenario, index: number): JSONValue {
+function toolResult(tool: string, scenario: Scenario, index: number, failed: boolean): JSONValue {
+  if (failed && scenario.failure) {
+    return {
+      ok: false,
+      error: {
+        code: scenario.failure.code,
+        message: scenario.failure.message,
+        retryable: !scenario.failure.terminal,
+      },
+      attempt: scenario.failure.terminal ? 3 : 1,
+      tool,
+    };
+  }
   if (["web_search", "github_search", "search_advisories", "search_tickets"].includes(tool)) {
     return {
       content: Array.from({ length: 3 }, (_, result) => ({
@@ -73,40 +91,65 @@ function toolResult(tool: string, scenario: Scenario, index: number): JSONValue 
   return { ok: true, rows: 120 + index * 7, summary: `${tool.replaceAll("_", " ")} completed with verified output` };
 }
 
-function contentForKind(kind: string, scenario: Scenario, index: number, tool: string): JSONValue {
+function contentForKind(kind: string, scenario: Scenario, index: number, tool: string, failed = false): JSONValue {
   if (kind === "agent.turn.started") return { prompt_name: scenario.slug, objective: scenario.prompt };
   if (kind === "message.user") return { text: scenario.prompt };
   if (kind === "model.request") return { model: scenario.model, provider: providerForModel(scenario.model), max_tokens: 4096, message_count: 4 + index, tools: scenario.tools };
+  if (kind === "model.reasoning") return { type: "reasoning", text: `Checking the captured evidence and constraints for ${scenario.slug.replaceAll("-", " ")} before the next action.`, token_count: 320 + index * 7 };
   if (kind === "model.response") return { model: scenario.model, provider: providerForModel(scenario.model), stop_reason: "tool_use" };
   if (kind === "tool.call") return { name: tool, input: toolInput(tool, scenario, index) };
-  if (kind === "tool.result") return toolResult(tool, scenario, index);
+  if (kind === "tool.result") return toolResult(tool, scenario, index, failed);
   if (kind === "test.evidence") return { check: `evidence-${index + 1}`, passed: true, confidence: 0.94 };
   if (kind === "message.assistant") return { text: `Checkpoint ${index + 1}: evidence reconciled for **${scenario.slug.replaceAll("-", " ")}**. Continuing with the remaining verification steps.` };
-  if (kind === "agent.turn.completed") return { stop_reason: "end_turn", usage: { input_tokens: 18_400 + scenario.records * 211, output_tokens: 2_100 + scenario.records * 43, cache_read_input_tokens: 6_200, service_tier: "standard" } };
+  if (kind === "agent.turn.completed") return {
+    stop_reason: scenario.failure?.terminal ? "error" : "end_turn",
+    ...(scenario.failure?.terminal ? { error: { code: scenario.failure.code, message: scenario.failure.message } } : {}),
+    usage: { input_tokens: 18_400 + scenario.records * 211, output_tokens: 2_100 + scenario.records * 43, output_tokens_details: { reasoning_tokens: 720 + scenario.records * 9 }, cache_read_input_tokens: 6_200, service_tier: "standard" },
+  };
   return { name: kind, index };
 }
 
 function buildTimeline(scenario: Scenario): TimelineEntry[] {
   const first = startedAt(scenario).getTime();
   const duration = scenario.durationMinutes * 60_000;
-  const middleKinds = ["tool.call", "tool.result", "model.response", "message.assistant", "tool.call", "tool.result", "test.evidence"];
+  const middleKinds = ["model.reasoning", "tool.call", "tool.result", "model.response", "message.assistant", "tool.call", "tool.result", "test.evidence"];
   const kinds = ["agent.turn.started", "message.user", "model.request"];
   while (kinds.length < scenario.records - 2) kinds.push(middleKinds[(kinds.length - 3) % middleKinds.length]);
   kinds.push("message.assistant", "agent.turn.completed");
 
   let activeTool = scenario.tools[0];
   let toolCallCount = 0;
+  const totalToolCalls = kinds.filter((kind) => kind === "tool.call").length;
+  const failureToolCall = scenario.failure?.toolCall === "last" ? totalToolCalls : scenario.failure?.toolCall;
+  let activeToolCall = 0;
+  let pendingFailureNarration = false;
+  let failedTool: string | null = null;
 
   return kinds.map((kind, index) => {
     const occurred = new Date(first + (duration * index) / Math.max(1, kinds.length - 1)).toISOString();
     if (kind === "tool.call") {
       activeTool = scenario.tools[toolCallCount % scenario.tools.length];
       toolCallCount += 1;
+      activeToolCall = toolCallCount;
     }
     const tool = activeTool;
+    const toolFailed = kind === "tool.result" && activeToolCall === failureToolCall;
+    const narratesFailure = kind === "message.assistant" && pendingFailureNarration;
+    if (toolFailed) {
+      pendingFailureNarration = true;
+      failedTool = tool;
+    }
     const content = index === kinds.length - 2
-      ? { text: `## Recommendation\n\nThe **${scenario.slug.replaceAll("-", " ")}** run completed with ${scenario.tools.length} evidence sources reconciled.\n\n- Primary checks passed\n- Remaining risk is bounded and documented\n- All supporting records are sealed in immutable history` }
-      : contentForKind(kind, scenario, index, tool);
+      ? scenario.failure?.terminal
+        ? { text: `## Unable to complete\n\nThe **${scenario.slug.replaceAll("-", " ")}** run stopped because \`${scenario.failure.code}\` prevented the final evidence check.\n\n- ${scenario.failure.message}\n- No mitigation recommendation was issued\n- Partial evidence remains available for debugging` }
+        : { text: `## Recommendation\n\nThe **${scenario.slug.replaceAll("-", " ")}** run completed with ${scenario.tools.length} evidence sources reconciled.\n\n- Primary checks passed\n- One recoverable tool failure was retried successfully\n- Remaining risk is bounded and documented\n- All supporting records are sealed in immutable history` }
+      : narratesFailure && scenario.failure
+        ? { text: `The **${(failedTool ?? tool).replaceAll("_", " ")}** call failed with \`${scenario.failure.code}\`. I switched to the captured fallback evidence path and can continue.` }
+        : contentForKind(kind, scenario, index, tool, toolFailed);
+    if (narratesFailure) {
+      pendingFailureNarration = false;
+      failedTool = null;
+    }
     const serialized = JSON.stringify(content);
     const record: HistoryRecord = {
       schema_version: "2",
@@ -121,7 +164,13 @@ function buildTimeline(scenario: Scenario): TimelineEntry[] {
       parent_id: index > 0 ? `span_${String(index).padStart(3, "0")}` : null,
       agent: scenario.agents[index % scenario.agents.length],
       tool: kind.startsWith("tool.") ? tool : null,
-      status: kind === "agent.turn.started" ? "running" : kind === "agent.turn.completed" || kind === "tool.result" ? "complete" : null,
+      status: toolFailed || (kind === "agent.turn.completed" && scenario.failure?.terminal)
+        ? "failed"
+        : kind === "agent.turn.started"
+          ? "running"
+          : kind === "agent.turn.completed" || kind === "tool.result"
+            ? "complete"
+            : null,
       tags: { environment: scenario.environment, team: scenario.team, prompt: scenario.slug, demo: "true" },
       content: {
         sha256: String(index + 1).padStart(64, "0"),

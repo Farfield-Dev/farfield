@@ -1,7 +1,7 @@
-import { eventCategory, previewForEntry, type JSONValue, type TimelineEntry } from "./history";
+import { eventCategory, isReasoningEntry, previewForEntry, type JSONValue, type TimelineEntry } from "./history";
 
 export type TraceDensity = "overview" | "trace" | "records";
-export type TraceFocus = "all" | "tools" | "slow" | "errors";
+export type TraceFocus = "all" | "tools" | "reasoning" | "slow" | "errors";
 
 export type TraceOperation = {
   id: string;
@@ -172,6 +172,7 @@ export function operationsForDensity(operations: TraceOperation[], density: Trac
 
 export function operationMatchesFocus(operation: TraceOperation, focus: TraceFocus) {
   if (focus === "tools") return operation.category === "tool";
+  if (focus === "reasoning") return operation.entries.some(isReasoningEntry);
   if (focus === "slow") return operation.duration >= 1_000;
   if (focus === "errors") return operation.status === "error";
   return true;
