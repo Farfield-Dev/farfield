@@ -3,7 +3,7 @@
 Durable agent history with a typed, Node-native API.
 
 ```bash
-npm install @farfield/sdk
+pnpm add @farfield/sdk
 ```
 
 Start a local Farfield server, then capture and read a conversation:

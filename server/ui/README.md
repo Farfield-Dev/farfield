@@ -25,12 +25,12 @@ The design principles are:
 Run the Go server on port 8787, then:
 
 ```sh
-npm install
-npm run dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
 The Vite development server proxies `/v1` to Farfield. Before committing UI
-changes, run `npm run check && npm run build`; the generated `dist` directory is
+changes, run `pnpm check && pnpm build`; the generated `dist` directory is
 embedded by `server/ui.go` and checked into the repository for hermetic Go and
 release builds.
 

@@ -4,11 +4,11 @@ build:
 	go build ./cmd/farfield
 
 ui:
-	npm run build --prefix server/ui
+	pnpm --dir server/ui build
 
 ui-check:
-	npm run check --prefix server/ui
-	npm test --prefix server/ui
+	pnpm --dir server/ui check
+	pnpm --dir server/ui test
 
 fmt:
 	gofmt -w $$(find . -name '*.go' -not -path './vendor/*')

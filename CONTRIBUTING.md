@@ -10,7 +10,7 @@ must include golden fixtures and an explicit compatibility decision.
 make check
 go build ./cmd/farfield
 
-cd sdk/typescript && npm ci && npm run check
+cd sdk/typescript && pnpm install --frozen-lockfile && pnpm check
 cd ../python && python -m pip install -e '.[dev]'
 ruff check . && ruff format --check . && pyright
 python -W error::ResourceWarning -m unittest discover -s tests -v

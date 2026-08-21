@@ -11,8 +11,8 @@ export FARFIELD_CONVERSATION=conv_sdk_smoke
 
 go run ./examples/sdk-smoke/go
 
-npm ci --prefix sdk/typescript
-npm run build --prefix sdk/typescript
+pnpm --dir sdk/typescript install --frozen-lockfile
+pnpm --dir sdk/typescript build
 node examples/sdk-smoke/typescript.mjs
 ```
 
