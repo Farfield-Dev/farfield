@@ -4,10 +4,10 @@ go 1.24.0
 
 require (
 	cloud.google.com/go/storage v1.60.0
-	github.com/aws/aws-sdk-go-v2 v1.43.6
+	github.com/aws/aws-sdk-go-v2 v1.45.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.37
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.107.2
-	github.com/aws/smithy-go v1.27.8
+	github.com/aws/smithy-go v1.28.1
 	github.com/gowebpki/jcs v1.0.1
 	go.opentelemetry.io/proto/otlp v1.10.0
 	google.golang.org/api v0.265.0
